@@ -1,0 +1,13 @@
+{
+  "name": "butler-local-prototype",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "A dependency-free local Butler prototype with optional Vertex AI and FFmpeg integration.",
+  "scripts": {
+    "start": "python run.py",
+    "test": "python run.py --test",
+    "check": "node --check static/app.js"
+  },
+  "engines": { "node": ">=18" }
+}

@@ -1,0 +1,28 @@
+@font-face {
+  font-family: ButlerIcons;
+  src: url("icons.ttf") format("truetype");
+  font-display: block;
+}
+.icon { font: normal normal 18px/1 ButlerIcons; display: inline-block; flex: 0 0 auto; text-rendering: auto; }
+.icon-search::before { content: "\ea6d"; }
+.icon-create::before { content: "\ea73"; }
+.icon-bookmark::before { content: "\eaa5"; }
+.icon-history::before { content: "\ea82"; }
+.icon-settings::before { content: "\eaf8"; }
+.icon-arrow-right::before { content: "\ea9c"; }
+.icon-arrow-up::before { content: "\eaa1"; }
+.icon-close::before { content: "\ea76"; }
+.icon-check::before { content: "\eab2"; }
+.icon-compare::before { content: "\eae1"; }
+.icon-spark::before { content: "\ec10"; }
+.icon-upload::before { content: "\eac3"; }
+.icon-play::before { content: "\eb2c"; }
+.icon-download::before { content: "\eac2"; }
+.icon-refresh::before { content: "\eb37"; }
+.icon-save::before { content: "\eb4b"; }
+.icon-shield::before { content: "\eb53"; }
+.icon-file::before { content: "\eae0"; }
+.icon-folder::before { content: "\ea83"; }
+.icon-info::before { content: "\ea74"; }
+.icon-chevron::before { content: "\eab4"; }
+.icon-message::before { content: "\ea6b"; }

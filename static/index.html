@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#eef5f1">
+  <title>Butler | Your Creative Workspace</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="/static/assets/icons.css">
+  <link rel="stylesheet" href="/static/styles.css">
+  <script type="module" src="/static/app.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to workspace</a>
+  <aside class="sidebar" aria-label="Workspace navigation">
+    <a class="wordmark" href="/" aria-label="Butler home"><span class="brand-mark">b.</span><span>butler<span class="brand-dot">.</span></span></a>
+    <div class="workspace-switch"><span class="workspace-symbol">C</span><div><strong>Creator workspace</strong><small>Personal</small></div></div>
+    <div class="nav-caption">WORKSPACE</div>
+    <nav class="main-nav">
+      <button class="nav-item active" data-page="discover" aria-current="page"><span class="icon icon-search" aria-hidden="true"></span><span>Discover</span></button>
+      <button class="nav-item" data-page="create"><span class="icon icon-create" aria-hidden="true"></span><span>Create</span><span class="nav-tag">Studio</span></button>
+      <button class="nav-item" data-page="saved"><span class="icon icon-bookmark" aria-hidden="true"></span><span>Saved</span><span class="nav-count" id="saved-count">0</span></button>
+      <button class="nav-item" data-page="activity"><span class="icon icon-history" aria-hidden="true"></span><span>Activity</span></button>
+    </nav>
+    <div class="sidebar-bottom">
+      <button class="status-link" id="workspace-status"><span class="icon icon-settings" aria-hidden="true"></span><span>Workspace status</span></button>
+      <div class="profile"><span class="avatar">C</span><div><strong>Creator</strong><small>Local session</small></div><span class="connection-dot" aria-label="Connected"></span></div>
+    </div>
+  </aside>
+  <main id="main" class="main-shell">
+    <header class="topbar">
+      <div class="breadcrumb"><span class="mobile-brand">butler.</span><span class="breadcrumb-root">Workspace</span><span class="breadcrumb-divider">/</span><strong id="page-name">Discover</strong></div>
+      <div class="topbar-actions"><button class="provider-badge" id="provider-badge" title="Workspace status" aria-label="Workspace status"><span class="connection-dot"></span><span>Connecting</span></button><button class="icon-button" id="refresh-workspace" title="Refresh workspace" aria-label="Refresh workspace"><span class="icon icon-refresh" aria-hidden="true"></span></button></div>
+    </header>
+    <div id="fatal-error" class="fatal-error" role="alert" hidden></div>
+    <section id="page-discover" class="page discover-page" aria-label="Discover">
+      <section class="conversation" aria-label="Conversation with Butler">
+        <div class="conversation-heading"><div class="assistant-emblem"><span class="icon icon-spark" aria-hidden="true"></span></div><div><h1>Meet your next idea.</h1><p>Butler <span class="muted-dot">/</span> <span id="chat-mode">Local rules</span></p></div></div>
+        <div class="chat-stream" id="chat-stream" role="log" aria-live="polite" aria-label="Conversation"></div>
+        <div class="conversation-bottom">
+          <div class="quick-prompts" id="quick-prompts"><button data-prompt="Find a microphone under 5000 INR"><span class="icon icon-search" aria-hidden="true"></span>Mics under 5,000 INR</button><button data-prompt="Find lighting under 3000 INR"><span class="icon icon-search" aria-hidden="true"></span>Lighting for my setup</button></div>
+          <form id="chat-form" class="chat-composer"><label class="sr-only" for="chat-input">Message Butler</label><textarea id="chat-input" rows="2" maxlength="2000" placeholder="What are we making today?" required></textarea><div class="composer-bottom"><span>YOUR CONVERSATION</span><button class="send-button" type="submit" id="send-message" title="Send message" aria-label="Send message"><span class="icon icon-arrow-up" aria-hidden="true"></span></button></div></form>
+          <div class="conversation-footnote"><span class="connection-dot"></span><span id="chat-footnote">Local rules &middot; private session</span></div>
+        </div>
+      </section>
+      <section class="catalog-area" aria-label="Product catalog">
+        <div class="section-heading"><div><div class="eyebrow">A LITTLE LESS SEARCHING</div><h2>Good tools. More creating.</h2></div><span class="catalog-total" id="catalog-total">30 essentials</span></div>
+        <form id="filter-form" class="filter-toolbar">
+          <label class="category-select"><span class="sr-only">Category</span><select id="category-filter"><option value="microphones">Microphones</option><option value="lighting">Lighting</option><option value="tripods">Tripods</option><option value="headphones">Headphones</option><option value="">All essentials</option></select></label>
+          <label class="budget-field"><span>Budget</span><input id="budget-filter" inputmode="decimal" type="number" min="0" max="1000000" step="0.01" placeholder="Any"></label>
+          <label class="currency-select"><span class="sr-only">Currency</span><select id="currency-filter"><option>INR</option><option>USD</option><option>EUR</option></select></label>
+          <button class="icon-button filter-submit" type="submit" title="Apply filters" aria-label="Apply filters"><span class="icon icon-search" aria-hidden="true"></span></button>
+        </form>
+        <div class="catalog-meta"><span class="sample-note"><span class="sample-dot"></span>Sample catalog &middot; illustrative prices</span><span id="result-count">Loading</span></div>
+        <div class="product-grid" id="product-grid" aria-live="polite"></div>
+        <div class="catalog-provenance"><span class="icon icon-info" aria-hidden="true"></span><span>Fictional products. Prices are not retailer offers. Availability: unknown.</span></div>
+        <div class="compare-toolbar" id="compare-toolbar" hidden><div class="comparison-selection"><span class="icon icon-compare" aria-hidden="true"></span><strong id="compare-count">0 selected</strong></div><div class="compare-actions"><button class="icon-button" id="clear-comparison" title="Clear comparison" aria-label="Clear comparison"><span class="icon icon-close" aria-hidden="true"></span></button><button class="button button-dark" id="open-comparison"><span class="icon icon-compare" aria-hidden="true"></span>Compare</button></div></div>
+      </section>
+    </section>
+    <section id="page-create" class="page standard-page" aria-label="Content studio" hidden>
+      <div class="page-heading"><div><div class="eyebrow">THE CREATOR STUDIO</div><h1>Create</h1></div><span class="subtle-label">Vertical &middot; 720p</span></div>
+      <div class="setup-banner" id="media-setup" hidden><span class="icon icon-info" aria-hidden="true"></span><span>FFmpeg and FFprobe are not configured. Clip inspection and rendering are unavailable.</span></div>
+      <div class="studio-grid">
+        <section class="edit-workspace" aria-label="Video edit plan">
+          <div class="section-title"><span class="step-number">01</span><h2>Your clip</h2><span class="subtle-label" id="asset-status">No clip selected</span></div>
+          <label class="consent-label"><input id="media-consent" type="checkbox">I own this video or have permission to use it.</label>
+          <div class="upload-zone" id="upload-zone"><div class="upload-emblem"><span class="icon icon-upload" aria-hidden="true"></span></div><strong id="upload-title">Start with your footage.</strong><span id="upload-detail">MP4 &middot; up to 50 MB &middot; 60 seconds</span><button class="button button-white" id="choose-file"><span class="icon icon-upload" aria-hidden="true"></span>Choose video</button><input id="video-file" type="file" accept="video/mp4,.mp4" hidden><progress id="upload-progress" max="100" value="0" hidden></progress></div>
+          <div id="asset-error" class="inline-error" role="status" hidden></div>
+          <button class="button button-white inspection-retry" id="retry-inspection" hidden><span class="icon icon-refresh" aria-hidden="true"></span>Retry inspection</button>
+          <div class="section-title edit-title"><span class="step-number">02</span><h2>Make it yours</h2></div>
+          <form id="edit-form" class="edit-form">
+            <div class="form-row"><label>Trim start <span class="unit">seconds</span><input id="trim-start" type="number" min="0" max="60" step="0.1" value="0" required></label><label>Trim end <span class="unit">seconds</span><input id="trim-end" type="number" min="0.1" max="60" step="0.1" value="20" required></label></div>
+            <fieldset class="fit-field"><legend>Framing</legend><div class="segmented-control"><label><input type="radio" name="fit_mode" value="letterbox" checked><span>Letterbox</span></label><label><input type="radio" name="fit_mode" value="center_crop"><span>Center crop</span></label></div></fieldset>
+            <label class="field-label">Title <input id="video-title" maxlength="80" placeholder="A little something I made"></label>
+            <div class="toggle-row"><label for="subtitles-enabled">Subtitles</label><label class="switch"><input id="subtitles-enabled" type="checkbox"><span></span></label></div>
+            <div id="transcript-field" hidden><label class="field-label">Transcript <textarea id="transcript-input" maxlength="6000" rows="4" placeholder="The words spoken in your selected segment"></textarea></label><small class="muted" id="transcript-note">Manual transcript &middot; evenly spaced, approximate timing</small></div>
+            <button class="button button-dark full-width" id="review-plan" type="submit" disabled><span class="icon icon-shield" aria-hidden="true"></span>Review edit plan<span class="icon icon-arrow-right" aria-hidden="true"></span></button>
+          </form>
+          <section class="caption-workspace" aria-label="Caption draft"><div class="section-title"><span class="step-number">03</span><h2>The words to go with it</h2><span class="subtle-label" id="caption-state">Draft</span></div><div class="caption-input-row"><label class="field-label">Context<input id="caption-context" maxlength="1000" placeholder="Cooking videos, a fresh recipe..."></label><label class="field-label tone-label">Tone<select id="caption-tone"><option value="friendly">Friendly</option><option value="professional">Professional</option><option value="playful">Playful</option></select></label></div><button class="button button-white" id="generate-caption"><span class="icon icon-spark" aria-hidden="true"></span>Draft caption</button><label class="sr-only" for="caption-text">Caption text</label><textarea id="caption-text" maxlength="2000" rows="5" placeholder="Your caption..."></textarea><label class="field-label">Hashtags<input id="caption-hashtags" maxlength="420" placeholder="#CreatorLife #BehindTheScenes"></label><div class="caption-actions"><button class="button button-white" id="save-caption"><span class="icon icon-save" aria-hidden="true"></span>Save changes</button><button class="button button-text" id="download-caption"><span class="icon icon-download" aria-hidden="true"></span>Download caption</button></div></section>
+        </section>
+        <aside class="preview-workspace" aria-label="Video preview"><div class="preview-heading"><h2>Preview</h2><span class="subtle-label" id="preview-kind">Draft framing</span></div><div class="video-frame" id="video-frame"><div id="preview-empty" class="preview-empty"><span class="icon icon-play" aria-hidden="true"></span><span>Your next creation</span></div><video id="video-preview" controls playsinline preload="metadata" hidden></video><div class="video-title-overlay" id="video-title-overlay" hidden></div><span class="frame-corner frame-corner-top"></span><span class="frame-corner frame-corner-bottom"></span></div><div class="preview-meta"><span>9:16</span><span id="preview-duration">720 &times; 1280</span><span>MP4</span></div><div class="job-panel" id="job-panel" hidden></div><button class="button button-dark full-width" id="export-package" disabled><span class="icon icon-download" aria-hidden="true"></span>Export post package</button><div class="artifact-links" id="artifact-links"></div></aside>
+      </div>
+    </section>
+    <section id="page-saved" class="page standard-page" aria-label="Saved products" hidden><div class="page-heading"><div><div class="eyebrow">YOUR SHORTLIST</div><h1>Saved</h1></div><span class="subtle-label" id="saved-total">0 products</span></div><div class="sample-note saved-notice"><span class="sample-dot"></span>Fictional sample products &middot; illustrative prices</div><div class="product-grid saved-grid" id="saved-grid"></div></section>
+    <section id="page-activity" class="page standard-page" aria-label="Session activity" hidden><div class="page-heading"><div><div class="eyebrow">THE WORK IN PROGRESS</div><h1>Activity</h1></div><span class="subtle-label">This session</span></div><div class="activity-list" id="activity-list"></div></section>
+  </main>
+  <nav class="mobile-nav" aria-label="Mobile workspace navigation"><button data-page="discover" class="active" aria-current="page"><span class="icon icon-search" aria-hidden="true"></span><span>Discover</span></button><button data-page="create"><span class="icon icon-create" aria-hidden="true"></span><span>Create</span></button><button data-page="saved"><span class="icon icon-bookmark" aria-hidden="true"></span><span>Saved</span></button><button data-page="activity"><span class="icon icon-history" aria-hidden="true"></span><span>Activity</span></button></nav>
+  <dialog id="compare-dialog" class="wide-dialog" aria-labelledby="compare-title"><div class="dialog-heading"><div><div class="eyebrow">SIDE BY SIDE</div><h2 id="compare-title">A clearer choice.</h2></div><button class="icon-button" data-close-dialog title="Close comparison" aria-label="Close comparison"><span class="icon icon-close" aria-hidden="true"></span></button></div><div id="comparison-content"></div><div class="dialog-footer"><span class="muted">Sample prices &middot; availability unknown</span><button class="button button-dark" id="use-selection"><span class="icon icon-create" aria-hidden="true"></span>Use selection in studio</button></div></dialog>
+  <dialog id="plan-dialog" aria-labelledby="plan-title"><div class="dialog-heading"><div><div class="eyebrow">YOUR APPROVAL</div><h2 id="plan-title">Ready to make the cut?</h2></div><button class="icon-button" data-close-dialog title="Close edit plan" aria-label="Close edit plan"><span class="icon icon-close" aria-hidden="true"></span></button></div><div id="plan-summary"></div><div class="dialog-footer"><button class="button button-white" data-close-dialog>Back to edit</button><button class="button button-dark" id="approve-plan"><span class="icon icon-shield" aria-hidden="true"></span>Approve &amp; render</button></div></dialog>
+  <dialog id="status-dialog" aria-labelledby="status-title"><div class="dialog-heading"><h2 id="status-title">Workspace status</h2><button class="icon-button" data-close-dialog title="Close status" aria-label="Close status"><span class="icon icon-close" aria-hidden="true"></span></button></div><div id="status-content"></div><div class="dialog-footer"><span class="muted">Private loopback access</span><button class="button button-white" id="status-refresh"><span class="icon icon-refresh" aria-hidden="true"></span>Refresh</button></div></dialog>
+  <dialog id="access-dialog" aria-labelledby="access-title"><div class="dialog-heading"><h2 id="access-title">Your workspace awaits.</h2></div><form id="access-form"><label class="field-label">Demo access code<input id="access-code" type="password" autocomplete="current-password" maxlength="256" required></label><p id="access-error" class="inline-error" role="alert" hidden></p><button type="submit" class="button button-dark full-width">Enter workspace<span class="icon icon-arrow-right" aria-hidden="true"></span></button></form></dialog>
+  <div class="toast-region" id="toast-region" role="status" aria-live="polite"></div>
+</body>
+</html>

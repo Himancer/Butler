@@ -5,10 +5,29 @@ import subprocess
 import sys
 from pathlib import Path
 
-from app.server import ButlerApplication, ButlerHTTPServer
-
 
 ROOT = Path(__file__).resolve().parent
+
+
+def _load_dotenv() -> None:
+    """Load .env from the project root into os.environ (no external deps)."""
+    env_file = ROOT / ".env"
+    if not env_file.is_file():
+        return
+    for raw in env_file.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        key = key.strip()
+        value = value.strip()
+        if key and key not in os.environ:  # shell env takes precedence
+            os.environ[key] = value
+
+
+_load_dotenv()
+
+from app.server import ButlerApplication, ButlerHTTPServer  # noqa: E402 — must come after env load
 
 
 def run_tests() -> int:

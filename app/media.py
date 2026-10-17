@@ -33,6 +33,13 @@ def executable(name: str) -> str | None:
     for candidate in candidates:
         if candidate.is_file():
             return str(candidate.resolve())
+    local_app_data = os.environ.get("LOCALAPPDATA", "")
+    if local_app_data:
+        winget_pkgs = Path(local_app_data) / "Microsoft" / "WinGet" / "Packages"
+        if winget_pkgs.is_dir():
+            for exe in winget_pkgs.glob(f"**/{name}.exe"):
+                if exe.is_file():
+                    return str(exe.resolve())
     return None
 
 

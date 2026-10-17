@@ -41,7 +41,11 @@ class ButlerApplication:
         self.transcription_mode = os.environ.get("BUTLER_TRANSCRIPTION", "manual")
         if self.transcription_mode not in ("manual", "google"):
             raise ValueError("BUTLER_TRANSCRIPTION must be manual or google")
-        self.media = MediaEngine(self.store, self.data_dir / "media", self.tools, self.vertex.transcribe if self.transcription_mode == "google" else None)
+        self.media = MediaEngine(
+            self.store, self.data_dir / "media", self.tools,
+            self.vertex.transcribe if self.transcription_mode == "google" else None,
+            self.vertex.select_video_moments if self.provider_mode == "vertex" else None,
+        )
         self.passcode = os.environ.get("BUTLER_DEMO_PASSCODE", "")
         self.signing_key = secrets.token_bytes(32)
         self.mutation_lock = RLock()

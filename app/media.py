@@ -8,6 +8,8 @@ import shutil
 import subprocess
 import textwrap
 import time
+import wave
+import struct
 import zipfile
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -154,13 +156,111 @@ class MediaTools:
         if result.returncode != 0:
             raise ButlerError("RENDER_FAILED", "FFmpeg could not process this edit. Check codec and font support in the configured distribution.")
 
+    def scene_changes(self, path: Path) -> list[float]:
+        if not self.ffmpeg:
+            return []
+        try:
+            result = subprocess.run(
+                [self.ffmpeg, "-nostdin", "-hide_banner", "-protocol_whitelist", "file,pipe", "-i", str(path), "-vf", "select='gt(scene,0.16)',showinfo", "-an", "-f", "null", "-"],
+                capture_output=True, text=True, timeout=45, check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            return []
+        return [float(value) for value in re.findall(r"pts_time:([0-9]+(?:\.[0-9]+)?)", result.stderr) if value]
+
+    def audio_activity(self, path: Path, duration: float) -> list[dict[str, float]]:
+        """Return non-silent audio windows as local cues (not speech transcription)."""
+        if not self.ffmpeg:
+            return []
+        try:
+            result = subprocess.run(
+                [self.ffmpeg, "-nostdin", "-hide_banner", "-protocol_whitelist", "file,pipe", "-i", str(path), "-vn", "-af", "silencedetect=noise=-35dB:d=0.15", "-f", "null", "-"],
+                capture_output=True, text=True, timeout=45, check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            return []
+        windows: list[dict[str, float]] = []
+        cursor = 0.0
+        for line in result.stderr.splitlines():
+            start = re.search(r"silence_start:\s*([0-9]+(?:\.[0-9]+)?)", line)
+            end = re.search(r"silence_end:\s*([0-9]+(?:\.[0-9]+)?)", line)
+            if start:
+                silence_start = min(duration, float(start.group(1)))
+                if silence_start > cursor:
+                    windows.append({"start": cursor, "end": silence_start})
+            if end:
+                cursor = min(duration, float(end.group(1)))
+        if cursor < duration:
+            windows.append({"start": cursor, "end": duration})
+        return windows
+
+
+def highlight_intervals(duration: float, target: float, scene_times: list[float], speech: list[dict[str, Any]] | None = None, moments: list[float] | None = None, focus: str = "balanced") -> list[tuple[float, float]]:
+    """Choose four chronological excerpts using scene changes and speech activity."""
+    if target >= duration - 1 / 30:
+        return [(0.0, duration)]
+    count = 4
+    piece = target / count
+    speech = speech or []
+    candidates = [round(index * 0.25, 2) for index in range(max(1, int((duration - piece) * 4) + 1))]
+    moments = moments or []
+    scene_weight, speech_weight = {"speech": (1.5, 8.0), "visual": (8.0, 1.5)}.get(focus, (3.0, 2.0))
+    chosen: list[float] = []
+    for _ in range(count):
+        best_start, best_score = 0.0, float("-inf")
+        for start in candidates:
+            end = start + piece
+            if any(not (end <= prior or start >= prior + piece) for prior in chosen):
+                continue
+            scene_score = sum(start <= point <= end for point in scene_times)
+            speech_score = sum(max(0.0, min(end, segment["end"]) - max(start, segment["start"])) for segment in speech)
+            visual_score = sum(max(0.0, 1.0 - abs((start + end) / 2 - point) / max(piece, 1.0)) for point in moments)
+            spacing_score = min((abs(start - prior) for prior in chosen), default=duration)
+            score = visual_score * 8.0 + scene_score * scene_weight + min(speech_score, piece) * speech_weight + spacing_score * 0.05
+            if score > best_score:
+                best_start, best_score = start, score
+        chosen.append(best_start)
+    return [(start, start + piece) for start in sorted(chosen)]
+
+
+def make_music(path: Path, duration: float) -> None:
+    """Create a gentle, low-volume instrumental bed without requiring external media."""
+    sample_rate = 22050
+    count = int(sample_rate * duration)
+    chords = [(261.63, 329.63, 392.0), (220.0, 261.63, 329.63), (174.61, 220.0, 261.63), (196.0, 246.94, 293.66)]
+    with wave.open(str(path), "wb") as output:
+        output.setnchannels(1)
+        output.setsampwidth(2)
+        output.setframerate(sample_rate)
+        frames = bytearray()
+        for index in range(count):
+            t = index / sample_rate
+            chord = chords[int(t / 3) % len(chords)]
+            envelope = min(1.0, t * 5, max(0.0, (duration - t) * 3))
+            value = sum(math.sin(2 * math.pi * frequency * t) for frequency in chord) / len(chord)
+            frames.extend(struct.pack("<h", int(32767 * 0.22 * envelope * value)))
+        output.writeframes(frames)
+
+
+def map_speech_to_output(segments: list[dict[str, Any]], intervals: list[tuple[float, float]], speed: float) -> list[dict[str, Any]]:
+    mapped = []
+    output_offset = 0.0
+    for start, end in intervals:
+        for segment in segments:
+            left, right = max(start, segment["start"]), min(end, segment["end"])
+            if right > left:
+                mapped.append({"start": output_offset + (left - start) / speed, "end": output_offset + (right - start) / speed, "text": segment["text"]})
+        output_offset += (end - start) / speed
+    return mapped
+
 
 class MediaEngine:
-    def __init__(self, store: Store, root: Path, tools: MediaTools, transcriber: Callable[[Path, float], list[dict[str, Any]]] | None = None) -> None:
+    def __init__(self, store: Store, root: Path, tools: MediaTools, transcriber: Callable[[Path, float], list[dict[str, Any]]] | None = None, moment_selector: Callable[[Path, float], list[float]] | None = None) -> None:
         self.store = store
         self.root = root
         self.tools = tools
         self.transcriber = transcriber
+        self.moment_selector = moment_selector
         self.executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="butler-media")
         self.slots = BoundedSemaphore(4)
         self.export_lock = Lock()
@@ -213,36 +313,123 @@ class MediaEngine:
                 raise ButlerError("STALE_PLAN", "The approved plan does not match this job.", 409)
             inspected = self.tools.inspect(self.asset_path(asset))
             validate_plan({**asset, **inspected}, plan)
-            duration = plan["trim_end_seconds"] - plan["trim_start_seconds"]
+            shortening = bool(plan.get("shorten_duration_seconds"))
+            duration = float(plan["shorten_duration_seconds"] if shortening else plan["trim_end_seconds"] - plan["trim_start_seconds"])
             if not self.tools.font:
                 raise ButlerError("TOOLS_REQUIRED", "A subtitle/title font is missing. Configure BUTLER_FONT_PATH.", 503)
             shutil.copyfile(self.tools.font, directory / "font.ttf")
             (directory / "title.txt").write_text(textwrap.fill(plan["title_text"], width=28), encoding="utf-8")
             transcript_source = None
+            scene_times: list[float] = []
+            speech_segments: list[dict[str, Any]] = []
+            audio_activity: list[dict[str, Any]] = []
+            visual_moments: list[float] = []
+            source_duration = float(inspected["duration_seconds"])
+            if shortening:
+                self.store.update_job(job_id, session_id, attempt, {"phase": "analyzing"})
+                if plan["shorten_strategy"] != "uniform_speed":
+                    scene_times = self.tools.scene_changes(self.asset_path(asset))
+                    if self.moment_selector:
+                        self.tools.run(["-i", str(self.asset_path(asset)), "-vf", "fps=1,scale=192:108,tile=5x12", "-frames:v", "1", "-q:v", "4", "contact-sheet.jpg"], directory, 30)
+                        visual_moments = self.moment_selector(directory / "contact-sheet.jpg", source_duration)
+                if self.transcriber and inspected["has_audio"]:
+                    self.tools.run(["-i", str(self.asset_path(asset)), "-vn", "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", "analysis.wav"], directory, 40)
+                    speech_segments = self.transcriber(directory / "analysis.wav", source_duration)
+                    transcript_source = "google_speech_analysis"
+                if plan.get("shorten_focus") == "speech" and inspected["has_audio"]:
+                    audio_activity = speech_segments or self.tools.audio_activity(self.asset_path(asset), source_duration)
+                if plan["subtitles_enabled"] and shortening and not plan["transcript"] and not speech_segments:
+                    raise ButlerError("NO_SPEECH", "No speech was detected for subtitles. Add a manual transcript or turn subtitles off.")
             if plan["subtitles_enabled"]:
                 self.store.update_job(job_id, session_id, attempt, {"phase": "transcribing"})
                 if plan["transcript"]:
                     segments = manual_subtitles(plan["transcript"], duration)
                     transcript_source = "manual_approximate_timing"
                 elif self.transcriber:
-                    self.tools.run(["-i", str(self.asset_path(asset)), "-ss", str(plan["trim_start_seconds"]), "-t", str(duration), "-vn", "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", "audio.wav"], directory, 30)
-                    segments = self.transcriber(directory / "audio.wav", duration)
+                    if not speech_segments and not shortening:
+                        self.tools.run(["-i", str(self.asset_path(asset)), "-ss", str(plan["trim_start_seconds"]), "-t", str(duration), "-vn", "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", "audio.wav"], directory, 30)
+                        speech_segments = self.transcriber(directory / "audio.wav", duration)
+                        if not shortening:
+                            segments = speech_segments
+                    if shortening:
+                        transcript_source = "google_speech"
                     transcript_source = "google_speech"
+                    if shortening:
+                        segments = speech_segments
                 else:
                     raise ButlerError("TRANSCRIPT_REQUIRED", "Automatic transcription is not configured. Provide a manual transcript or disable subtitles.")
-                (directory / "subtitles.srt").write_text(write_srt(segments, duration), encoding="utf-8")
+                if not shortening or plan["transcript"]:
+                    (directory / "subtitles.srt").write_text(write_srt(segments, duration), encoding="utf-8")
             self.store.update_job(job_id, session_id, attempt, {"phase": "rendering"})
-            self.tools.run([
-                "-i", str(self.asset_path(asset)), "-ss", str(plan["trim_start_seconds"]), "-t", str(duration),
-                "-map", "0:v:0", "-map", "0:a:0?", "-vf", self.tools.filters(plan, plan["subtitles_enabled"]),
+            args = ["-i", str(self.asset_path(asset))]
+            if shortening:
+                target = duration
+                strategy = plan["shorten_strategy"]
+                intervals = [(0.0, source_duration)]
+                speed = source_duration / target if strategy == "uniform_speed" else (min(1.25, source_duration / target) if strategy == "hybrid" else 1.0)
+                if strategy == "smart_highlights":
+                    intervals = highlight_intervals(source_duration, target, scene_times, audio_activity or speech_segments, visual_moments, plan.get("shorten_focus", "balanced"))
+                elif strategy == "hybrid":
+                    piece = target * speed / 4
+                    intervals = [(start, start + piece) for start, _ in highlight_intervals(source_duration, target * speed, scene_times, audio_activity or speech_segments, visual_moments, plan.get("shorten_focus", "balanced"))]
+                if plan["subtitles_enabled"] and not plan["transcript"] and speech_segments:
+                    (directory / "subtitles.srt").write_text(write_srt(map_speech_to_output(speech_segments, intervals, speed), target), encoding="utf-8")
+                if strategy == "uniform_speed":
+                    ratio = source_duration / target
+                    pts = 1 / ratio
+                    audio_filters = []
+                    remaining = ratio
+                    while remaining > 2:
+                        audio_filters.append("atempo=2")
+                        remaining /= 2
+                    audio_filters.append(f"atempo={remaining:.8f}")
+                    graph = f"[0:v]setpts=(PTS-STARTPTS)*{pts:.10f},{self.tools.filters(plan, plan['subtitles_enabled'])}[v]"
+                    if plan["shorten_audio"] != "mute" and inspected["has_audio"]:
+                        graph += f";[0:a]asetpts=PTS-STARTPTS,{','.join(audio_filters)},apad=whole_dur={target}[a]"
+                    args += ["-filter_complex", graph, "-map", "[v]"]
+                    if plan["shorten_audio"] != "mute" and inspected["has_audio"]:
+                        args += ["-map", "[a]"]
+                else:
+                    selections = "+".join(f"between(t,{start:.6f},{end:.6f})" for start, end in intervals)
+                    video_timing = f"setpts=N/FRAME_RATE/TB/{speed:.2f}"
+                    graph = f"[0:v]select='{selections}',{video_timing},{self.tools.filters(plan, plan['subtitles_enabled'])}[v]"
+                    if plan["shorten_audio"] != "mute" and inspected["has_audio"]:
+                        audio_timing = f",atempo={speed:.8f}" if strategy == "hybrid" else ""
+                        graph += f";[0:a]aselect='{selections}',asetpts=N/SR/TB{audio_timing},apad=whole_dur={target}[a]"
+                    args += ["-filter_complex", graph, "-map", "[v]"]
+                    if plan["shorten_audio"] != "mute" and inspected["has_audio"]:
+                        args += ["-map", "[a]"]
+                if plan["shorten_audio"] == "mute":
+                    args += ["-an"]
+                elif plan["shorten_audio"] == "music":
+                    make_music(directory / "music.wav", target)
+                    # FFmpeg needs every input declared before output maps/filter outputs.
+                    args[2:2] = ["-i", str(directory / "music.wav")]
+                    if inspected["has_audio"]:
+                        graph += f";[a]volume=0.8[original];[1:a]volume=0.22[music];[original][music]amix=inputs=2:duration=longest:dropout_transition=0,atrim=duration={target}[mix]"
+                    else:
+                        graph += f";[1:a]atrim=duration={target}[mix]"
+                    args[args.index("-filter_complex") + 1] = graph
+                    if inspected["has_audio"]:
+                        args[args.index("[a]")] = "[mix]"
+                    else:
+                        args += ["-map", "[mix]"]
+                args += ["-t", str(target)]
+            else:
+                args += ["-ss", str(plan["trim_start_seconds"]), "-t", str(duration), "-map", "0:v:0", "-map", "0:a:0?", "-vf", self.tools.filters(plan, plan["subtitles_enabled"])]
+                if plan.get("shorten_audio") == "mute":
+                    args += ["-an"]
+            args += [
                 "-r", "30", "-c:v", "libx264", "-preset", "fast", "-crf", "23", "-pix_fmt", "yuv420p",
                 "-threads", "2", "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart", "output.mp4",
-            ], directory, 120)
+            ]
+            self.tools.run(args, directory, 120)
             self.store.update_job(job_id, session_id, attempt, {"phase": "verifying"})
             output = self.tools.probe(directory / "output.mp4")
             video = next((stream for stream in output.get("streams", []) if stream.get("codec_type") == "video"), {})
             output_duration = float(output.get("format", {}).get("duration", 0))
-            if (video.get("width"), video.get("height")) != (720, 1280) or not math.isfinite(output_duration) or abs(output_duration - duration) > 0.5:
+            duration_tolerance = (1 / 30) if plan.get("shorten_duration_seconds") else 0.5
+            if (video.get("width"), video.get("height")) != (720, 1280) or not math.isfinite(output_duration) or abs(output_duration - duration) > duration_tolerance:
                 raise ButlerError("OUTPUT_INVALID", "The rendered output did not pass playback validation.")
             required = ["output.mp4"] + (["subtitles.srt"] if plan["subtitles_enabled"] else [])
             if not all((directory / filename).is_file() and (directory / filename).stat().st_size for filename in required):

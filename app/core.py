@@ -138,8 +138,11 @@ class Catalog:
 def validate_plan(asset: dict[str, Any], values: dict[str, Any]) -> dict[str, Any]:
     if asset.get("validation_status") != "valid":
         raise ButlerError("ASSET_NOT_READY", "This clip has not passed server-side inspection.", 409)
-    start = values.get("trim_start_seconds", 0)
-    end = values.get("trim_end_seconds", min(20, asset["duration_seconds"]))
+    shorten_duration = values.get("shorten_duration_seconds", 0)
+    if type(shorten_duration) not in (int, float) or not math.isfinite(shorten_duration) or shorten_duration < 0 or shorten_duration > 60:
+        raise ButlerError("INVALID_SHORTEN_DURATION", "Choose a target between 0 and 60 seconds.")
+    start = 0 if shorten_duration else values.get("trim_start_seconds", 0)
+    end = asset["duration_seconds"] if shorten_duration else values.get("trim_end_seconds", min(20, asset["duration_seconds"]))
     if any(type(value) not in (int, float) or not math.isfinite(value) for value in (start, end)):
         raise ButlerError("INVALID_TRIM", "Trim bounds must be finite numbers.")
     if not 0 <= start < end <= asset["duration_seconds"]:
@@ -153,6 +156,17 @@ def validate_plan(asset: dict[str, Any], values: dict[str, Any]) -> dict[str, An
     transcript = bounded_text(values.get("transcript", ""), "Transcript", 6000)
     if subtitles and not transcript and not asset.get("has_audio"):
         raise ButlerError("NO_AUDIO", "This clip has no audio. Disable subtitles or provide a manual transcript.")
+    shorten_strategy = values.get("shorten_strategy", "smart_highlights")
+    shorten_audio = values.get("shorten_audio", "preserve")
+    shorten_focus = values.get("shorten_focus", "balanced")
+    if shorten_strategy not in ("smart_highlights", "uniform_speed", "hybrid"):
+        raise ButlerError("INVALID_SHORTEN_STRATEGY", "Choose a supported Smart Shorten strategy.")
+    if shorten_audio not in ("preserve", "music", "mute"):
+        raise ButlerError("INVALID_SHORTEN_AUDIO", "Choose a supported Smart Shorten audio setting.")
+    if shorten_focus not in ("balanced", "speech", "visual"):
+        raise ButlerError("INVALID_SHORTEN_FOCUS", "Choose a supported highlight focus.")
+    if shorten_duration and shorten_duration > asset["duration_seconds"]:
+        raise ButlerError("SHORTEN_TARGET_TOO_LONG", "The Smart Shorten target cannot exceed the video duration.")
     return {
         "asset_id": asset["id"],
         "trim_start_seconds": float(start),
@@ -161,6 +175,10 @@ def validate_plan(asset: dict[str, Any], values: dict[str, Any]) -> dict[str, An
         "title_text": bounded_text(values.get("title_text", ""), "Title", 80),
         "subtitles_enabled": subtitles,
         "transcript": transcript,
+        "shorten_duration_seconds": shorten_duration,
+        "shorten_strategy": shorten_strategy,
+        "shorten_audio": shorten_audio,
+        "shorten_focus": shorten_focus,
         "output_preset": "vertical_720p",
     }
 
@@ -315,7 +333,7 @@ class Store:
             job = json.loads(row["data"])
             if job["status"] != "queued":
                 return None
-            job.update(status="processing", phase="validating", attempt_count=job["attempt_count"] + 1, updated_at=time.time(), lease_until=time.time() + 240)
+            job.update(status="processing", phase="validating", attempt_count=job["attempt_count"] + 1, updated_at=time.time(), lease_until=time.time() + 600)
             self.write_record(connection, "jobs", job)
         return job
 

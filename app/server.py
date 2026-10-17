@@ -7,7 +7,6 @@ import mimetypes
 import os
 import re
 import secrets
-import shutil
 import time
 from collections import defaultdict, deque
 from http import HTTPStatus
@@ -19,21 +18,36 @@ from typing import Any
 from urllib.parse import parse_qs, quote, unquote, urlsplit
 
 from app.core import ButlerError, CATEGORIES, Catalog, MAX_UPLOAD_BYTES, SESSION_TTL, Store, TONES, bounded_text, new_id, parse_shopping_request, validate_plan
+from app.firestore_store import FirestoreStore
 from app.media import MediaEngine, MediaTools
 from app.providers import VertexAdapter, local_caption, valid_hashtags
+from app.storage import MediaStorageError, create_media_store
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-RETRYABLE = {"RENDER_TIMEOUT", "PROVIDER_UNAVAILABLE", "WORKER_RESTART", "DISPATCH_BUSY", "TOOLS_REQUIRED"}
+RETRYABLE = {"RENDER_TIMEOUT", "PROVIDER_UNAVAILABLE", "WORKER_RESTART", "DISPATCH_BUSY", "TOOLS_REQUIRED", "MEDIA_STORAGE_UNAVAILABLE"}
 
 
 class ButlerApplication:
     def __init__(self, data_dir: Path | None = None) -> None:
         default_base = Path(os.environ.get("LOCALAPPDATA", str(Path.home() / ".local" / "share")))
         self.data_dir = (data_dir or Path(os.environ.get("BUTLER_DATA_DIR", str(default_base / "ButlerPrototype")))).resolve()
-        self.store = Store(self.data_dir / "butler.sqlite3")
+        cloud_run = bool(os.environ.get("K_SERVICE"))
+        self.storage_mode = os.environ.get("BUTLER_STORAGE", "firestore" if cloud_run else "sqlite").lower()
+        if cloud_run and self.storage_mode != "firestore":
+            raise ValueError("Cloud Run requires BUTLER_STORAGE=firestore; SQLite is only for local mode")
+        self.max_upload_bytes = 30_000_000 if os.environ.get("K_SERVICE") else MAX_UPLOAD_BYTES
+        if self.storage_mode == "sqlite":
+            self.store = Store(self.data_dir / "butler.sqlite3")
+        elif self.storage_mode == "firestore":
+            self.store = FirestoreStore(os.environ.get("GOOGLE_CLOUD_PROJECT", ""))
+        else:
+            raise ValueError("BUTLER_STORAGE must be sqlite or firestore")
         self.catalog = Catalog(PROJECT_ROOT / "data" / "products.json")
         self.tools = MediaTools()
+        self.object_store = create_media_store(self.data_dir / "media")
+        if cloud_run and self.object_store.mode != "Google Cloud Storage":
+            raise ValueError("Cloud Run requires BUTLER_MEDIA_STORAGE=gcs; local files are not durable")
         self.provider_mode = os.environ.get("BUTLER_MODEL", "local")
         if self.provider_mode not in ("local", "vertex"):
             raise ValueError("BUTLER_MODEL must be local or vertex")
@@ -41,9 +55,12 @@ class ButlerApplication:
         self.transcription_mode = os.environ.get("BUTLER_TRANSCRIPTION", "manual")
         if self.transcription_mode not in ("manual", "google"):
             raise ValueError("BUTLER_TRANSCRIPTION must be manual or google")
-        self.media = MediaEngine(self.store, self.data_dir / "media", self.tools, self.vertex.transcribe if self.transcription_mode == "google" else None)
+        self.media = MediaEngine(self.store, self.data_dir / "media", self.tools, self.vertex.transcribe if self.transcription_mode == "google" else None, self.object_store)
         self.passcode = os.environ.get("BUTLER_DEMO_PASSCODE", "")
-        self.signing_key = secrets.token_bytes(32)
+        configured_signing_key = os.environ.get("BUTLER_SIGNING_KEY", "")
+        if os.environ.get("K_SERVICE") and len(configured_signing_key) < 32:
+            raise ValueError("Cloud Run requires BUTLER_SIGNING_KEY from Secret Manager (32+ characters)")
+        self.signing_key = configured_signing_key.encode() if configured_signing_key else secrets.token_bytes(32)
         self.mutation_lock = RLock()
         self.rate_lock = Lock()
         self.rates: dict[str, deque[float]] = defaultdict(deque)
@@ -63,7 +80,8 @@ class ButlerApplication:
             history.append(now)
 
     def capabilities(self) -> dict[str, Any]:
-        return {"assistant": "Gemini on Vertex AI" if self.provider_mode == "vertex" else "Local rules", "model_mode": self.provider_mode, "catalog": self.catalog.metadata, "media": self.tools.status(), "transcription": self.transcription_mode, "retention_hours": 24, "storage": "Local SQLite", "max_upload_bytes": MAX_UPLOAD_BYTES}
+        media_storage = self.object_store.mode + (" (selected; access checked on upload)" if self.object_store.mode == "Google Cloud Storage" else "")
+        return {"assistant": "Gemini on Vertex AI" if self.provider_mode == "vertex" else "Local rules", "model_mode": self.provider_mode, "catalog": self.catalog.metadata, "media": self.tools.status(), "transcription": self.transcription_mode, "retention_hours": 24, "storage": "Firestore" if self.storage_mode == "firestore" else "Local SQLite", "media_storage": media_storage, "access_mode": "Cloud Run" if os.environ.get("K_SERVICE") else "Loopback only", "max_upload_bytes": self.max_upload_bytes}
 
     def product(self, product: dict[str, Any]) -> dict[str, Any]:
         return {**product, "source_label": self.catalog.metadata["source"], "source_url": None, "price_observed_at": None, "availability_note": "Not checked", "catalog_version": self.catalog.metadata["version"], "sample": True}
@@ -172,8 +190,8 @@ class ButlerApplication:
         size = values.get("size_bytes")
         if not filename.lower().endswith(".mp4") or values.get("content_type") not in ("video/mp4", "application/octet-stream"):
             raise ButlerError("UNSUPPORTED_FILE", "Choose an MP4 video.")
-        if type(size) is not int or not 0 < size <= MAX_UPLOAD_BYTES:
-            raise ButlerError("UPLOAD_TOO_LARGE", "Choose one MP4 file of at most 50 MB.", 413)
+        if type(size) is not int or not 0 < size <= self.max_upload_bytes:
+            raise ButlerError("UPLOAD_TOO_LARGE", f"Choose one MP4 file of at most {self.max_upload_bytes // 1_000_000} MB.", 413)
         if values.get("consent") is not True:
             raise ButlerError("CONSENT_REQUIRED", "Confirm that you own this clip or have permission to use it.")
         if len(self.store.list("assets", session["id"])) >= 5:
@@ -181,6 +199,7 @@ class ButlerApplication:
         if any(job["status"] in ("queued", "processing") for job in self.store.list("jobs", session["id"])):
             raise ButlerError("ASSET_BUSY", "Wait for your active render before uploading another clip.", 409)
         asset = {"id": new_id(), "session_id": session["id"], "original_filename": Path(filename.replace("\\", "/")).name, "declared_size_bytes": size, "size_bytes": None, "validation_status": "reserved", "created_at": time.time(), "expires_at": session["expires_at"], "error_code": None, "error_message": None}
+        asset["object_key"] = f"{session['id']}/assets/{asset['id']}/source.mp4"
         self.store.put("assets", asset)
         return {**self.public_record(asset), "upload_url": f"/api/v1/assets/{asset['id']}/upload"}
 
@@ -215,7 +234,7 @@ class ButlerApplication:
         while not self.stop_event.is_set():
             try:
                 for session_id in self.store.expire_sessions():
-                    shutil.rmtree(self.data_dir / "media" / session_id, ignore_errors=True)
+                    self.media.delete_session(session_id)
                 for job in self.store.list("jobs"):
                     if job["status"] == "processing" and job.get("lease_until", time.time() + 1) < time.time():
                         self.store.update_job(job["id"], job["session_id"], job["attempt_count"], {"status": "failed", "phase": "failed", "error_code": "RENDER_TIMEOUT", "error_message": "The worker lease expired. No partial output is available.", "lease_until": None})
@@ -248,6 +267,7 @@ class ButlerHTTPServer(ThreadingHTTPServer):
 class ButlerHandler(BaseHTTPRequestHandler):
     server: ButlerHTTPServer
     server_version = "Butler/1.0"
+    protocol_version = "HTTP/1.1"
 
     def log_message(self, format: str, *args: Any) -> None:
         return
@@ -256,9 +276,10 @@ class ButlerHandler(BaseHTTPRequestHandler):
     def app(self) -> ButlerApplication:
         return self.server.app
 
-    def security_headers(self, content_type: str, size: int, cache: str = "no-store") -> None:
+    def security_headers(self, content_type: str, size: int | None, cache: str = "no-store") -> None:
         self.send_header("Content-Type", content_type)
-        self.send_header("Content-Length", str(size))
+        if size is not None:
+            self.send_header("Content-Length", str(size))
         self.send_header("Cache-Control", cache)
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Referrer-Policy", "no-referrer")
@@ -318,9 +339,11 @@ class ButlerHandler(BaseHTTPRequestHandler):
             return public_origin
 
         allowed = {f"127.0.0.1:{port}", f"localhost:{port}"}
-        if host not in allowed:
-            raise ButlerError("INVALID_HOST", "Butler accepts only its loopback origin unless a public origin is configured.", 403)
-        return f"http://{host}"
+        configured_hosts = {item.strip().lower() for item in os.environ.get("BUTLER_ALLOWED_HOSTS", "").split(",") if item.strip()}
+        cloud_host = bool(os.environ.get("K_SERVICE")) and host.lower() in configured_hosts
+        if host not in allowed and not cloud_host:
+            raise ButlerError("INVALID_HOST", "Butler accepts only its loopback origin or an explicitly configured Cloud Run host.", 403)
+        return f"{'https' if os.environ.get('K_SERVICE') else 'http'}://{host}"
 
     def session(self) -> dict[str, Any]:
         try:
@@ -334,7 +357,9 @@ class ButlerHandler(BaseHTTPRequestHandler):
         return session
 
     def mutation_security(self, session: dict[str, Any] | None) -> None:
-        if self.headers.get("Origin") != self.check_host():
+        origin = self.headers.get("Origin", "")
+        allowed_origins = {item.strip().rstrip("/") for item in os.environ.get("BUTLER_ALLOWED_ORIGINS", "").split(",") if item.strip()}
+        if (allowed_origins and origin not in allowed_origins) or (not allowed_origins and origin != self.check_host()):
             raise ButlerError("INVALID_ORIGIN", "The request origin is not allowed.", 403)
         if session and not secrets.compare_digest(self.headers.get("X-CSRF-Token", ""), session["csrf_token"]):
             raise ButlerError("INVALID_CSRF", "The request security token is missing or expired.", 403)
@@ -437,7 +462,7 @@ class ButlerHandler(BaseHTTPRequestHandler):
             asset = self.app.store.get("assets", path.split("/")[4], session["id"])
             if asset["validation_status"] != "valid":
                 raise ButlerError("ASSET_NOT_READY", "The clip is not ready for playback.", 409)
-            self.send_file(self.app.media.asset_path(asset), "video/mp4")
+            self.send_file(self.app.media.materialize_asset(asset), "video/mp4")
         elif method == "POST" and path == "/api/v1/edit-plans":
             if len(self.app.store.list("plans", session["id"])) >= 50:
                 raise ButlerError("SESSION_LIMIT", "This session has reached its edit-plan limit.", 429)
@@ -467,7 +492,7 @@ class ButlerHandler(BaseHTTPRequestHandler):
             job = self.app.store.get("jobs", path.split("/")[4], session["id"])
             if job["status"] != "succeeded":
                 raise ButlerError("JOB_NOT_FINISHED", "Preview is available only after a verified render.", 409)
-            self.send_file(self.app.media.attempt_path(job) / "output.mp4", "video/mp4")
+            self.send_file(self.app.media.materialize_artifact(job, "output.mp4"), "video/mp4")
         elif method == "GET" and re.fullmatch(r"/api/v1/files/[a-f0-9]{32}/(?:output\.mp4|caption\.txt|subtitles\.srt|post-package\.zip)", path):
             parts = path.split("/")
             job = self.app.store.get("jobs", parts[4], session["id"])
@@ -480,14 +505,14 @@ class ButlerHandler(BaseHTTPRequestHandler):
                 raise ButlerError("DOWNLOAD_EXPIRED", "This download link has expired. Request a new one.", 403)
             if job["status"] != "succeeded":
                 raise ButlerError("JOB_NOT_FINISHED", "The job is not complete.", 409)
-            self.send_file(self.app.media.attempt_path(job) / parts[5], mimetypes.guess_type(parts[5])[0] or "application/octet-stream", parts[5])
+            self.send_file(self.app.media.materialize_artifact(job, parts[5]), mimetypes.guess_type(parts[5])[0] or "application/octet-stream", parts[5])
         else:
             raise ButlerError("NOT_FOUND", "This route is unavailable.", 404)
 
     def upload(self, session: dict[str, Any], asset_id: str) -> None:
         length = self.body_length()
-        if length > MAX_UPLOAD_BYTES:
-            raise ButlerError("UPLOAD_TOO_LARGE", "The clip exceeds the 50 MB limit.", 413)
+        if length > self.app.max_upload_bytes:
+            raise ButlerError("UPLOAD_TOO_LARGE", f"The clip exceeds the {self.app.max_upload_bytes // 1_000_000} MB limit.", 413)
         with self.app.mutation_lock:
             asset = self.app.store.get("assets", asset_id, session["id"])
             if asset["validation_status"] != "reserved":
@@ -509,9 +534,16 @@ class ButlerHandler(BaseHTTPRequestHandler):
                     destination.write(chunk)
                     remaining -= len(chunk)
             partial.replace(path)
+            self.app.media.persist_asset(asset, path)
             asset.update(validation_status="uploaded", size_bytes=length)
             self.app.store.put("assets", asset)
             self.send_json(self.app.public_record(asset))
+        except MediaStorageError as error:
+            partial.unlink(missing_ok=True)
+            path.unlink(missing_ok=True)
+            asset.update(validation_status="invalid", error_code="MEDIA_STORAGE_UNAVAILABLE", error_message="The upload could not be saved to durable media storage. Try again when storage is available.")
+            self.app.store.put("assets", asset)
+            raise ButlerError("MEDIA_STORAGE_UNAVAILABLE", asset["error_message"], 503) from error
         except Exception:
             partial.unlink(missing_ok=True)
             path.unlink(missing_ok=True)
@@ -522,6 +554,11 @@ class ButlerHandler(BaseHTTPRequestHandler):
     def static_file(self, path: str) -> None:
         if path == "/":
             file = PROJECT_ROOT / "static" / "index.html"
+        elif path in ("/app.js", "/art.mjs", "/ui.mjs", "/styles.css") or path.startswith("/assets/"):
+            root = (PROJECT_ROOT / "static").resolve()
+            file = (root / path.lstrip("/")).resolve()
+            if not file.is_relative_to(root):
+                raise ButlerError("NOT_FOUND", "This file is unavailable.", 404)
         elif path.startswith("/static/"):
             root = (PROJECT_ROOT / "static").resolve()
             file = (root / path.removeprefix("/static/")).resolve()
@@ -554,8 +591,12 @@ class ButlerHandler(BaseHTTPRequestHandler):
             if not 0 <= start <= end < size:
                 raise ButlerError("INVALID_RANGE", "Playback range is outside the clip.", 416)
             status = 206
+        length = end - start + 1
+        chunked = bool(os.environ.get("K_SERVICE")) and length > 30_000_000
         self.send_response(status)
-        self.security_headers(content_type, end - start + 1, cache)
+        self.security_headers(content_type, None if chunked else length, cache)
+        if chunked:
+            self.send_header("Transfer-Encoding", "chunked")
         if content_type == "video/mp4":
             self.send_header("Accept-Ranges", "bytes")
         if status == 206:
@@ -570,5 +611,12 @@ class ButlerHandler(BaseHTTPRequestHandler):
                 chunk = source.read(min(remaining, 256 * 1024))
                 if not chunk:
                     break
-                self.wfile.write(chunk)
+                if chunked:
+                    self.wfile.write(f"{len(chunk):X}\r\n".encode("ascii"))
+                    self.wfile.write(chunk)
+                    self.wfile.write(b"\r\n")
+                else:
+                    self.wfile.write(chunk)
                 remaining -= len(chunk)
+        if chunked:
+            self.wfile.write(b"0\r\n\r\n")

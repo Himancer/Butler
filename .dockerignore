@@ -1,0 +1,11 @@
+.git
+.env
+.env.*
+!.env.example
+__pycache__
+*.py[cod]
+tests
+docs
+runtime
+media
+node_modules

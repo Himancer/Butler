@@ -40,8 +40,8 @@ def main() -> int:
     arguments = parser.parse_args()
     if arguments.test:
         return run_tests()
-    if not 1024 <= arguments.port <= 65525:
-        parser.error("Choose a port between 1024 and 65525.")
+    if not 1 <= arguments.port <= 65535:
+        parser.error("Choose a port between 1 and 65535.")
     app = ButlerApplication(arguments.data_dir)
     server = None
     ports = (arguments.port,) if cloud_run else range(arguments.port, arguments.port + 10)

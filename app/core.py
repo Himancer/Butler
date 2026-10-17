@@ -320,7 +320,7 @@ class Store:
         return job
 
     def retry_job(self, job_id: str, session_id: str) -> dict[str, Any]:
-        retryable = {"RENDER_TIMEOUT", "PROVIDER_UNAVAILABLE", "WORKER_RESTART", "DISPATCH_BUSY", "TOOLS_REQUIRED"}
+        retryable = {"RENDER_TIMEOUT", "PROVIDER_UNAVAILABLE", "WORKER_RESTART", "DISPATCH_BUSY", "TOOLS_REQUIRED", "MEDIA_STORAGE_UNAVAILABLE"}
         with self.connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
             row = connection.execute("SELECT data FROM records WHERE kind='jobs' AND id=? AND session_id=?", (job_id, session_id)).fetchone()

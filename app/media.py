@@ -22,7 +22,18 @@ def executable(name: str) -> str | None:
     if configured:
         path = Path(configured)
         return str(path.resolve()) if path.is_file() else None
-    return shutil.which(name)
+    found = shutil.which(name)
+    if found:
+        return found
+    candidates = [
+        Path.home() / "tools" / "ffmpeg-9.0.2-essentials_build" / "bin" / f"{name}.exe",
+        Path.home() / "tools" / "ffmpeg" / "bin" / f"{name}.exe",
+        Path(os.environ.get("LOCALAPPDATA", "")) / "Microsoft" / "WinGet" / "Links" / f"{name}.exe",
+    ]
+    for candidate in candidates:
+        if candidate.is_file():
+            return str(candidate.resolve())
+    return None
 
 
 def subtitle_clock(seconds: float) -> str:

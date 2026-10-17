@@ -177,7 +177,13 @@ function renderPreview() {
   const finished = state.job?.status === "succeeded";
   const source = finished ? `/api/v1/jobs/${state.job.id}/preview` : state.localPreview || (state.asset?.validation_status === "valid" ? `/api/v1/assets/${state.asset.id}/preview` : "");
   const video = element("video-preview");
-  if (source && video.getAttribute("src") !== source) video.src = source;
+  if (source && video.getAttribute("src") !== source) {
+    video.src = source;
+    video.load();
+  } else if (!source && video.getAttribute("src")) {
+    video.removeAttribute("src");
+    video.load();
+  }
   video.hidden = !source;
   element("preview-empty").hidden = Boolean(source);
   element("video-frame").classList.toggle("crop", !finished && state.edit.fit_mode === "center_crop");
@@ -196,6 +202,7 @@ function renderCreate() {
   element("upload-title").textContent = asset ? asset.original_filename : "Start with your footage.";
   element("upload-detail").textContent = asset?.duration_seconds ? `${durationLabel(asset.duration_seconds)} \u00b7 ${asset.width} \u00d7 ${asset.height}` : "MP4 \u00b7 up to 50 MB \u00b7 60 seconds";
   element("choose-file").disabled = Boolean(active || state.uploading);
+  if (element("use-sample-clip")) element("use-sample-clip").disabled = Boolean(active || state.uploading);
   element("asset-error").hidden = !asset?.error_message;
   element("asset-error").textContent = asset?.error_message || "";
   element("retry-inspection").hidden = !asset || !["needs_tools", "uploaded"].includes(asset.validation_status);
@@ -573,6 +580,19 @@ element("open-comparison").addEventListener("click", () => openComparison().catc
 element("clear-comparison").addEventListener("click", async () => { try { await persistSession({ selected_product_ids: [] }); renderProducts(); renderSaved(); } catch (error) { toast(error.message); } });
 element("use-selection").addEventListener("click", async () => { try { await persistSession({ selected_product_ids: JSON.parse(element("use-selection").dataset.productIds) }); element("compare-dialog").close(); setPage("create"); toast("Selection added to your caption context."); } catch (error) { toast(error.message); } });
 element("choose-file").addEventListener("click", () => { if (!element("media-consent").checked) toast("Confirm that you own the clip or have permission to use it."); else element("video-file").click(); });
+if (element("use-sample-clip")) {
+  element("use-sample-clip").addEventListener("click", async () => {
+    try {
+      element("media-consent").checked = true;
+      toast("Loading self-created footage...");
+      const response = await fetch("/static/assets/demo-creator-clip.mp4");
+      if (!response.ok) throw new Error("Sample clip is unavailable.");
+      const blob = await response.blob();
+      const file = new File([blob], "demo-creator-clip.mp4", { type: "video/mp4" });
+      await uploadFile(file);
+    } catch (error) { toast(error.message); }
+  });
+}
 element("video-file").addEventListener("change", event => uploadFile(event.target.files[0]));
 element("upload-zone").addEventListener("dragover", event => { event.preventDefault(); element("upload-zone").classList.add("dragging"); });
 element("upload-zone").addEventListener("dragleave", () => element("upload-zone").classList.remove("dragging"));

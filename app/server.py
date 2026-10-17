@@ -63,7 +63,7 @@ class ButlerApplication:
             history.append(now)
 
     def capabilities(self) -> dict[str, Any]:
-        return {"assistant": "Vertex AI" if self.provider_mode == "vertex" else "Local rules", "model_mode": self.provider_mode, "catalog": self.catalog.metadata, "media": self.tools.status(), "transcription": self.transcription_mode, "retention_hours": 24, "storage": "Local SQLite", "max_upload_bytes": MAX_UPLOAD_BYTES}
+        return {"assistant": "Gemini on Vertex AI" if self.provider_mode == "vertex" else "Local rules", "model_mode": self.provider_mode, "catalog": self.catalog.metadata, "media": self.tools.status(), "transcription": self.transcription_mode, "retention_hours": 24, "storage": "Local SQLite", "max_upload_bytes": MAX_UPLOAD_BYTES}
 
     def product(self, product: dict[str, Any]) -> dict[str, Any]:
         return {**product, "source_label": self.catalog.metadata["source"], "source_url": None, "price_observed_at": None, "availability_note": "Not checked", "catalog_version": self.catalog.metadata["version"], "sample": True}
@@ -162,7 +162,8 @@ class ButlerApplication:
         if tone not in TONES:
             raise ButlerError("INVALID_TONE", "Choose a supported caption tone.")
         context = bounded_text(values.get("user_context", ""), "Context", 1000)
-        generated = self.vertex.caption(products, context, tone) if self.provider_mode == "vertex" else local_caption(products, context, tone)
+        transcript = bounded_text(values.get("transcript", ""), "Transcript", 6000)
+        generated = self.vertex.caption(products, context, tone, transcript) if self.provider_mode == "vertex" else local_caption(products, context, tone)
         record = {"id": new_id(), "session_id": session["id"], "selected_product_ids": product_ids, "tone": tone, "user_context": context, **generated, "created_at": time.time(), "updated_at": time.time(), "provider": self.capabilities()["assistant"]}
         return self.store.put("captions", record)
 
@@ -305,9 +306,20 @@ class ButlerHandler(BaseHTTPRequestHandler):
     def check_host(self) -> str:
         host = self.headers.get("Host", "")
         port = self.server.server_port
+        public_origin = os.environ.get("BUTLER_PUBLIC_ORIGIN", "").rstrip("/")
+        if public_origin:
+            parsed_origin = urlsplit(public_origin)
+            if parsed_origin.scheme not in ("https", "http") or not parsed_origin.netloc or parsed_origin.path not in ("", "/") or parsed_origin.query or parsed_origin.fragment:
+                raise ButlerError("INVALID_HOST_CONFIG", "The configured public origin is invalid.", 500)
+            allowed = {parsed_origin.netloc.lower()}
+            allowed.update(value.strip().lower() for value in os.environ.get("BUTLER_ALLOWED_HOSTS", "").split(",") if value.strip())
+            if host.lower() not in allowed:
+                raise ButlerError("INVALID_HOST", "The request host is not configured for this Butler deployment.", 403)
+            return public_origin
+
         allowed = {f"127.0.0.1:{port}", f"localhost:{port}"}
         if host not in allowed:
-            raise ButlerError("INVALID_HOST", "Butler accepts only its loopback origin.", 403)
+            raise ButlerError("INVALID_HOST", "Butler accepts only its loopback origin unless a public origin is configured.", 403)
         return f"http://{host}"
 
     def session(self) -> dict[str, Any]:

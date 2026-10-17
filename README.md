@@ -1,6 +1,10 @@
 # Butler
 
-A runnable **local prototype** of the attached BRD: equipment discovery, product comparison, owned-video preparation, explicit edit approval, caption editing, and export.
+A creator-first assistant for getting from a clip you own to a post-ready draft without handing over creative control. Butler helps shape an approved vertical edit and turns the creator's brief and optional transcript into an opening hook, on-screen title, caption, and hashtags.
+
+The current build is a runnable **local prototype** of the attached BRD. Its primary story is the creator workflow; the equipment catalog is supporting context and uses fictional products with illustrative prices.
+
+Product narrative and a short demo run-of-show: [`docs/pitch-story.md`](docs/pitch-story.md).
 
 The original planning HTML is unchanged.
 
@@ -27,11 +31,12 @@ Run **one Butler instance per data directory**. A second independent instance mu
 - Compare up to three products, including unknown attributes and source labels.
 - Saved products, conversation history, preferences, captions, plans, jobs, and activity survive page refresh and server restart within a 24-hour session.
 - Create: authorized MP4 upload, upload progress, draft framing, trim inputs, title, subtitle setting, manual transcript, and editable captions.
+- Creator Pack: optional Gemini on Vertex AI turns the creator's brief and transcript into a hook, suggested video title, caption, and hashtags. Every field stays editable; render approval is still explicit, and Butler never publishes for the creator.
 - Server media inspection, immutable plan approval, queued rendering, progress phases, one deliberate retry for retryable jobs, and verified output publication **when approved FFmpeg tools are configured**.
 - Caption download works independently of the media tools. Completed renders offer MP4, caption text, optional SRT, and a ZIP post package. Exports include the latest saved caption edits.
-- Optional Vertex AI explanations/captions and Google Speech transcription through server-only REST adapters. These are not used by default and have not been exercised against live Google services here.
+- Optional Gemini on Vertex AI and Google Speech transcription through server-only REST adapters. These are not used by default and have not been exercised against live Google services here.
 
-Local mode is explicitly labeled **Local rules**, not live AI. Shopping decisions and edit-plan constraints are deterministic. A compound shopping/content request starts with discovery; video approval remains an explicit UI action. Manual transcript timings are evenly spaced approximations, not speech-aligned recognition.
+Local mode is explicitly labeled **Local rules**, not live AI. Creator Packs in local mode are deterministic examples; Gemini is used only when Vertex mode is configured. Shopping decisions and edit-plan constraints are deterministic. A compound shopping/content request starts with discovery; video approval remains an explicit UI action. Manual transcript timings are evenly spaced approximations, not speech-aligned recognition.
 
 ## Enable Video Processing
 
@@ -54,6 +59,10 @@ Output: 720 x 1280, 30 fps, H.264/AAC, letterbox or center crop, optional wrappe
 
 ## Enable Google Services
 
+The runner has a Cloud Run entry mode: when Cloud Run sets `K_SERVICE` and `PORT`, Butler binds to `0.0.0.0:$PORT` and obtains Vertex AI credentials from the Cloud Run metadata server. Configure `BUTLER_PUBLIC_ORIGIN` to the exact HTTPS origin users will open, `BUTLER_ALLOWED_HOSTS` to the exact hostnames forwarded to the service (comma-separated, no wildcards), and `BUTLER_COOKIE_SECURE=1`. Local mode continues to bind to loopback by default.
+
+This entry mode does **not** make the application a complete cloud deployment. Butler still stores state in SQLite and media on the container filesystem; those are not durable Cloud Run storage. Firestore, Cloud Storage, Firebase Hosting configuration, and deployment infrastructure are still required before using it as the public hackathon prototype.
+
 These steps require your approved Google Cloud project, enabled billing/APIs, model availability in the selected region, quotas, and IAM permissions. The app does not create or deploy cloud resources.
 
 Configure an approved Google Cloud CLI installation and application-default authentication directly on your machine. Do not put tokens, keys, or service-account files in chat, source control, or the browser.
@@ -62,13 +71,13 @@ Configure an approved Google Cloud CLI installation and application-default auth
 gcloud auth application-default login
 gcloud auth application-default set-quota-project YOUR_PROJECT_ID
 $env:GOOGLE_CLOUD_PROJECT = 'YOUR_PROJECT_ID'
-$env:GOOGLE_CLOUD_LOCATION = 'us-central1'
-$env:BUTLER_VERTEX_MODEL = 'YOUR_AVAILABLE_GEMINI_MODEL'
+$env:GOOGLE_CLOUD_LOCATION = 'asia-south1'
+$env:BUTLER_VERTEX_MODEL = 'gemini-3.5-flash'
 $env:BUTLER_MODEL = 'vertex'
 python run.py
 ```
 
-`YOUR_AVAILABLE_GEMINI_MODEL` must be verified in your project. The code's configurable default is `gemini-2.5-flash`; availability is not guaranteed. This local adapter requests the ADC access token from `gcloud`, caches it for 40 minutes, and makes bounded REST calls. It does not load service-account JSON files. Windows CLI invocation and live provider responses remain unverified until an approved CLI is available.
+As checked on October 17, 2026, Google's model guide lists Gemini 3.5 Flash as generally available and supports `asia-south1` ([model details](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/gemini/3-5-flash)). The adapter uses Vertex AI's `generateContent` REST endpoint and JSON response schema ([REST quickstart](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/start/quickstart), [structured output](https://cloud.google.com/vertex-ai/generative-ai/docs/reference/rest/v1/GenerationConfig)). Confirm the API, billing, IAM access, quotas, and model access for your project before the demo. Override the model or region if your project requires it. This adapter requests the ADC access token from `gcloud`, caches it for 40 minutes, and makes bounded REST calls. It does not load service-account JSON files. Windows CLI invocation and live provider responses remain unverified until an approved CLI is available.
 
 To enable automatic timed transcription, enable the Speech-to-Text API and grant the demo identity access, then set:
 
@@ -152,7 +161,7 @@ All application routes are under `/api/v1`. Sessions are established with `POST 
 | `POST /jobs/{id}/retry` | Same job, one deliberate retry for allowed failure codes |
 | `GET /jobs/{id}/preview` | Verified completed video |
 | `GET /jobs/{id}/downloads` | Fresh session-bound short-lived artifact links |
-| `POST /captions` | Confirmed product IDs, context, tone |
+| `POST /captions` | Confirmed product IDs, creator brief, optional transcript, tone; returns an editable Creator Pack |
 | `PUT /captions/{id}` | Retain edited text and hashtags |
 | `GET /captions/{id}/download` | Current authorized caption text |
 

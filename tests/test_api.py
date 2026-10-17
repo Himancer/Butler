@@ -101,6 +101,18 @@ class APITests(unittest.TestCase):
         status, _, _ = self.own("POST", "/api/v1/captions", {"product_ids": "", "user_context": "cooking"})
         self.assertEqual(status, 422)
 
+    def test_creator_pack_accepts_transcript_and_returns_editable_fields(self):
+        transcript = "I made a tiny lamp from colored paper."
+        status, caption, _ = self.own("POST", "/api/v1/captions", {
+            "product_ids": [], "user_context": "A playful craft video", "transcript": transcript, "tone": "playful",
+        })
+        self.assertEqual(status, 201)
+        self.assertTrue(caption["hook"])
+        self.assertTrue(caption["title"])
+        self.assertTrue(caption["text"])
+        self.assertTrue(caption["hashtags"])
+        self.assertNotIn("transcript", caption)
+
     def test_missing_budget_clarifies_and_currency_is_preserved(self):
         _, response, _ = self.own("POST", "/api/v1/chat", {"message": "Find a microphone in USD", "client_message_id": uuid.uuid4().hex})
         self.assertIn("budget in USD", response["reply"])

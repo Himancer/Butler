@@ -356,20 +356,45 @@ async function pollWork() {
 
 function renderCaption() {
   const caption = state.caption;
+  const usesGemini = state.capabilities?.model_mode === "vertex";
   element("caption-text").value = caption?.text || "";
   element("caption-hashtags").value = caption?.hashtags.join(" ") || "";
   element("caption-context").value = caption?.user_context || "";
   element("caption-tone").value = caption?.tone || state.session?.preferences.tone || "friendly";
+  element("creator-pack-note").textContent = usesGemini
+    ? "Gemini uses your brief + transcript to draft the hook, video title, caption and tags. Nothing publishes for you."
+    : "Local rules mode creates a deterministic example. Configure Gemini on Vertex AI for transcript-aware Creator Packs.";
+  element("creator-privacy").textContent = usesGemini
+    ? "When you press Make a Creator Pack, your brief and transcript are sent to Gemini. Review every word."
+    : "Local rules mode does not send the brief or transcript to Gemini.";
+  element("creator-hook").hidden = !caption?.hook;
+  element("creator-hook").textContent = caption?.hook ? `OPENING HOOK  /  ${caption.hook}` : "";
+  element("creator-title-suggestion").hidden = !caption?.title;
+  element("creator-title-text").textContent = caption?.title || "";
+  if (caption?.title && !element("video-title").value.trim()) {
+    state.edit.title_text = caption.title;
+    element("video-title").value = caption.title;
+    renderPreview();
+  }
   element("caption-state").textContent = caption ? caption.edited ? "Edited" : caption.provider : "Draft";
+}
+
+function creatorPackRequest() {
+  return {
+    product_ids: state.session.selected_product_ids,
+    user_context: element("caption-context").value,
+    transcript: element("transcript-input").value,
+    tone: element("caption-tone").value
+  };
 }
 
 async function generateCaption() {
   element("generate-caption").disabled = true;
   try {
-    state.caption = await api("/captions", { method: "POST", body: { product_ids: state.session.selected_product_ids, user_context: element("caption-context").value, tone: element("caption-tone").value } });
+    state.caption = await api("/captions", { method: "POST", body: creatorPackRequest() });
     state.captions.push(state.caption);
     renderCaption();
-    toast("Caption draft ready.");
+    toast("Creator Pack ready. The hook, title, and caption are all editable.");
   } catch (error) { toast(error.message); }
   finally { element("generate-caption").disabled = false; }
 }
@@ -379,7 +404,7 @@ async function saveCaption() {
   const hashtags = parseHashtags(element("caption-hashtags").value);
   if (!text.trim() && !hashtags.length) throw new Error("Add caption text before saving.");
   if (!state.caption) {
-    state.caption = await api("/captions", { method: "POST", body: { product_ids: state.session.selected_product_ids, user_context: element("caption-context").value, tone: element("caption-tone").value } });
+    state.caption = await api("/captions", { method: "POST", body: creatorPackRequest() });
     state.captions.push(state.caption);
   }
   state.caption = await api(`/captions/${state.caption.id}`, { method: "PUT", body: { text, hashtags } });
@@ -564,6 +589,12 @@ element("retry-inspection").addEventListener("click", async () => {
 element("video-preview").addEventListener("loadedmetadata", () => { if (state.job?.status !== "succeeded" && state.edit.trim_start_seconds) element("video-preview").currentTime = state.edit.trim_start_seconds; });
 element("video-preview").addEventListener("timeupdate", () => { if (state.job?.status !== "succeeded" && element("video-preview").currentTime >= state.edit.trim_end_seconds) { element("video-preview").pause(); element("video-preview").currentTime = state.edit.trim_start_seconds; } });
 element("generate-caption").addEventListener("click", generateCaption);
+element("use-suggested-title").addEventListener("click", () => {
+  if (!state.caption?.title) return;
+  element("video-title").value = state.caption.title;
+  collectEdit();
+  toast("Title idea added to your edit. Keep it or make it yours.");
+});
 element("save-caption").addEventListener("click", () => saveCaption().then(() => toast("Caption saved.")).catch(error => toast(error.message)));
 element("download-caption").addEventListener("click", () => saveCaption().then(() => { const link = document.createElement("a"); link.href = `/api/v1/captions/${state.caption.id}/download`; link.download = "caption.txt"; document.body.append(link); link.click(); link.remove(); }).catch(error => toast(error.message)));
 element("export-package").addEventListener("click", () => downloadArtifact("post-package.zip").catch(error => toast(error.message)));

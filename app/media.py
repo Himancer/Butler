@@ -15,6 +15,7 @@ from threading import BoundedSemaphore, Lock
 from typing import Any, Callable
 
 from app.core import ButlerError, MAX_DURATION, MAX_UPLOAD_BYTES, Store, validate_plan
+from app.storage import LocalMediaObjectStore, MediaObjectStore, MediaStorageError
 
 
 def executable(name: str) -> str | None:
@@ -138,10 +139,11 @@ class MediaTools:
 
 
 class MediaEngine:
-    def __init__(self, store: Store, root: Path, tools: MediaTools, transcriber: Callable[[Path, float], list[dict[str, Any]]] | None = None) -> None:
+    def __init__(self, store: Store, root: Path, tools: MediaTools, transcriber: Callable[[Path, float], list[dict[str, Any]]] | None = None, objects: MediaObjectStore | None = None) -> None:
         self.store = store
         self.root = root
         self.tools = tools
+        self.objects = objects or LocalMediaObjectStore(root)
         self.transcriber = transcriber
         self.executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="butler-media")
         self.slots = BoundedSemaphore(4)
@@ -152,6 +154,42 @@ class MediaEngine:
 
     def attempt_path(self, job: dict[str, Any]) -> Path:
         return self.root / job["session_id"] / "jobs" / job["id"] / f"attempt-{job['attempt_count']}"
+
+    @staticmethod
+    def asset_key(asset: dict[str, Any]) -> str:
+        return f"{asset['session_id']}/assets/{asset['id']}/source.mp4"
+
+    @staticmethod
+    def artifact_key(job: dict[str, Any], filename: str) -> str:
+        return f"{job['session_id']}/jobs/{job['id']}/attempt-{job['attempt_count']}/{filename}"
+
+    def materialize_asset(self, asset: dict[str, Any]) -> Path:
+        path = self.asset_path(asset)
+        if not path.is_file():
+            try:
+                self.objects.download(asset.get("object_key") or self.asset_key(asset), path)
+            except MediaStorageError as error:
+                raise ButlerError("MEDIA_STORAGE_UNAVAILABLE", "The uploaded clip could not be retrieved from media storage. Retry inspection when storage is available.", 503) from error
+        return path
+
+    def materialize_artifact(self, job: dict[str, Any], filename: str) -> Path:
+        path = self.attempt_path(job) / filename
+        if not path.is_file():
+            key = job.get("artifact_objects", {}).get(filename) or self.artifact_key(job, filename)
+            try:
+                self.objects.download(key, path)
+            except MediaStorageError as error:
+                raise ButlerError("MEDIA_STORAGE_UNAVAILABLE", "The export could not be retrieved from media storage. Try again when storage is available.", 503) from error
+        return path
+
+    def persist_asset(self, asset: dict[str, Any], path: Path | None = None) -> None:
+        key = self.asset_key(asset)
+        self.objects.upload(key, path or self.asset_path(asset))
+        asset["object_key"] = key
+
+    def delete_session(self, session_id: str) -> None:
+        self.objects.delete_prefix(session_id)
+        shutil.rmtree(self.root / session_id, ignore_errors=True)
 
     def submit(self, function: Callable[..., None], *arguments: Any) -> bool:
         if not self.slots.acquire(blocking=False):
@@ -166,15 +204,17 @@ class MediaEngine:
 
     def validate_asset(self, asset: dict[str, Any]) -> None:
         try:
-            metadata = self.tools.inspect(self.asset_path(asset))
+            metadata = self.tools.inspect(self.materialize_asset(asset))
             asset.update(metadata, validation_status="valid", error_code=None, error_message=None)
         except ButlerError as error:
-            asset.update(validation_status="needs_tools" if error.code == "TOOLS_REQUIRED" else "invalid", error_code=error.code, error_message=error.message)
-            if error.code != "TOOLS_REQUIRED":
+            asset.update(validation_status="needs_tools" if error.code == "TOOLS_REQUIRED" else "uploaded" if error.code == "MEDIA_STORAGE_UNAVAILABLE" else "invalid", error_code=error.code, error_message=error.message)
+            if error.code not in ("TOOLS_REQUIRED", "MEDIA_STORAGE_UNAVAILABLE"):
                 self.asset_path(asset).unlink(missing_ok=True)
+                self.objects.delete_prefix(f"{asset['session_id']}/assets/{asset['id']}")
         except Exception:
             asset.update(validation_status="invalid", error_code="INSPECTION_FAILED", error_message="The clip could not be inspected.")
             self.asset_path(asset).unlink(missing_ok=True)
+            self.objects.delete_prefix(f"{asset['session_id']}/assets/{asset['id']}")
         self.store.put("assets", asset)
 
     def dispatch(self, job: dict[str, Any]) -> None:
@@ -193,7 +233,8 @@ class MediaEngine:
             asset = self.store.get("assets", plan["asset_id"], session_id)
             if plan["status"] != "approved" or plan["version"] != job["plan_version"]:
                 raise ButlerError("STALE_PLAN", "The approved plan does not match this job.", 409)
-            inspected = self.tools.inspect(self.asset_path(asset))
+            asset_path = self.materialize_asset(asset)
+            inspected = self.tools.inspect(asset_path)
             validate_plan({**asset, **inspected}, plan)
             duration = plan["trim_end_seconds"] - plan["trim_start_seconds"]
             if not self.tools.font:
@@ -207,7 +248,7 @@ class MediaEngine:
                     segments = manual_subtitles(plan["transcript"], duration)
                     transcript_source = "manual_approximate_timing"
                 elif self.transcriber:
-                    self.tools.run(["-i", str(self.asset_path(asset)), "-ss", str(plan["trim_start_seconds"]), "-t", str(duration), "-vn", "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", "audio.wav"], directory, 30)
+                    self.tools.run(["-i", str(asset_path), "-ss", str(plan["trim_start_seconds"]), "-t", str(duration), "-vn", "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", "audio.wav"], directory, 30)
                     segments = self.transcriber(directory / "audio.wav", duration)
                     transcript_source = "google_speech"
                 else:
@@ -215,7 +256,7 @@ class MediaEngine:
                 (directory / "subtitles.srt").write_text(write_srt(segments, duration), encoding="utf-8")
             self.store.update_job(job_id, session_id, attempt, {"phase": "rendering"})
             self.tools.run([
-                "-i", str(self.asset_path(asset)), "-ss", str(plan["trim_start_seconds"]), "-t", str(duration),
+                "-i", str(asset_path), "-ss", str(plan["trim_start_seconds"]), "-t", str(duration),
                 "-map", "0:v:0", "-map", "0:a:0?", "-vf", self.tools.filters(plan, plan["subtitles_enabled"]),
                 "-r", "30", "-c:v", "libx264", "-preset", "fast", "-crf", "23", "-pix_fmt", "yuv420p",
                 "-threads", "2", "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart", "output.mp4",
@@ -230,9 +271,18 @@ class MediaEngine:
             if not all((directory / filename).is_file() and (directory / filename).stat().st_size for filename in required):
                 raise ButlerError("OUTPUT_INVALID", "The render did not produce all required artifacts.")
             (directory / "caption.txt").write_text(self.caption_text(session_id), encoding="utf-8")
-            self.store.update_job(job_id, session_id, attempt, {"status": "succeeded", "phase": "complete", "lease_until": None, "output_keys": [*required, "caption.txt"], "transcript_source": transcript_source, "completed_at": time.time()})
+            output_keys = [*required, "caption.txt"]
+            artifact_objects = {}
+            for filename in output_keys:
+                key = self.artifact_key(job, filename)
+                self.objects.upload(key, directory / filename)
+                artifact_objects[filename] = key
+            self.store.update_job(job_id, session_id, attempt, {"status": "succeeded", "phase": "complete", "lease_until": None, "output_keys": output_keys, "artifact_objects": artifact_objects, "transcript_source": transcript_source, "completed_at": time.time()})
         except ButlerError as error:
             self.store.update_job(job_id, session_id, attempt, {"status": "failed", "phase": "failed", "lease_until": None, "error_code": error.code, "error_message": error.message})
+            shutil.rmtree(directory, ignore_errors=True)
+        except MediaStorageError as error:
+            self.store.update_job(job_id, session_id, attempt, {"status": "failed", "phase": "failed", "lease_until": None, "error_code": "MEDIA_STORAGE_UNAVAILABLE", "error_message": "Media storage could not complete this render. Retry this same job when storage is available."})
             shutil.rmtree(directory, ignore_errors=True)
         except Exception:
             self.store.update_job(job_id, session_id, attempt, {"status": "failed", "phase": "failed", "lease_until": None, "error_code": "WORKER_FAILED", "error_message": "The worker stopped unexpectedly. No partial output has been published."})
@@ -252,11 +302,13 @@ class MediaEngine:
         with self.export_lock:
             (directory / "caption.txt").write_text(self.caption_text(job["session_id"]), encoding="utf-8")
             filenames = job["output_keys"]
-            if not all((directory / filename).is_file() for filename in filenames):
-                raise ButlerError("ARTIFACT_EXPIRED", "The output files have expired or are unavailable.", 404)
+            for filename in filenames:
+                self.materialize_artifact(job, filename)
+            self.objects.upload(job.get("artifact_objects", {}).get("caption.txt") or self.artifact_key(job, "caption.txt"), directory / "caption.txt")
             with zipfile.ZipFile(directory / "post-package.zip", "w", zipfile.ZIP_DEFLATED) as archive:
                 for filename in filenames:
                     archive.write(directory / filename, filename)
+            self.objects.upload(self.artifact_key(job, "post-package.zip"), directory / "post-package.zip")
         return [*filenames, "post-package.zip"]
 
     def recover(self) -> None:

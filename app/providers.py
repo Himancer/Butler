@@ -30,22 +30,18 @@ class VertexAdapter:
         if self.token_cache and self.token_expires > time.time():
             return self.token_cache
         if os.environ.get("K_SERVICE"):
-            request = urllib.request.Request(
-                "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token",
-                headers={"Metadata-Flavor": "Google"},
-            )
             try:
-                with urllib.request.urlopen(request, timeout=5) as response:
-                    credentials = json.loads(response.read(64 * 1024))
-                access_token = credentials.get("access_token")
-                expires_in = credentials.get("expires_in")
-                if not isinstance(access_token, str) or not access_token or not isinstance(expires_in, (int, float)):
-                    raise ValueError("Metadata server returned an invalid access token")
-                self.token_cache = access_token
-                self.token_expires = time.time() + max(60, int(expires_in) - 60)
+                import google.auth
+                from google.auth.transport.requests import Request
+                credentials, _ = google.auth.default(scopes=["https://www.googleapis.com/auth/cloud-platform"])
+                credentials.refresh(Request())
+                if not credentials.token:
+                    raise RuntimeError("No access token returned")
+                self.token_cache = credentials.token
+                self.token_expires = time.time() + 2400
                 return self.token_cache
-            except (urllib.error.URLError, TimeoutError, OSError, json.JSONDecodeError, ValueError) as error:
-                raise ButlerError("PROVIDER_UNAVAILABLE", "Cloud Run could not obtain its service identity token. Check the runtime service account and Vertex AI permissions.", 503) from error
+            except Exception as error:
+                raise ButlerError("PROVIDER_UNAVAILABLE", "Cloud Run could not obtain Google application-default credentials.", 503) from error
         command = shutil.which("gcloud")
         if not command:
             raise ButlerError("PROVIDER_UNAVAILABLE", "Google Cloud authentication is not configured. Set up approved gcloud application-default credentials or use local mode.", 503)

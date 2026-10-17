@@ -82,3 +82,31 @@ overall: NEEDS_SIGNOFF - local discovery/caption prototype works; live cloud and
 ```
 
 The app is a usable local prototype, not a production deployment or a completed cloud hackathon submission. The README names the exact setup prerequisites and remaining BRD work.
+
+## Cloud Path Workstation Check (17 October 2026)
+
+This is a current command/path check only; it does not mean any cloud service is configured or that a container image was built.
+
+| Tool/configuration | Observed state |
+| --- | --- |
+| Docker CLI | Available, version 24.0.2; daemon/build not exercised |
+| gcloud / Firebase CLI | Not found on PATH |
+| FFmpeg / FFprobe | Not found on PATH; Butler path variables are empty |
+| Windows Arial font | Present at `C:\Windows\Fonts\arial.ttf`; Butler font variable is empty |
+| Cloud resources / credentials | Not configured or verified |
+
+## Cloud Lane Branch Check (17 October 2026)
+
+| Check | Result |
+| --- | --- |
+| Branch base | `codex/saniya-cloud` from fetched `origin/main` at `a2e49ef` |
+| Python suite | 53 passed, 0 failed, 1 real FFmpeg render skipped because tools are not configured |
+| JavaScript checks | 6 passed; syntax checks passed |
+| Firestore adapter tests | 4 passed against an in-memory SDK stand-in; no live Firestore read/write |
+| Firebase Hosting config | `firebase.json` parses; static root and Cloud Run rewrites inspected |
+| Docker build | Not run; Docker daemon not exercised |
+| Cloud deployment / URL | Not deployed; gcloud and Firebase CLI unavailable |
+| Gemini | Cloud container configured for Vertex AI; no live Gemini request verified |
+| GCS | Adapter configured for private bucket use; IAM/object persistence not live-verified |
+
+The Cloud Run, Firestore, GCS, Firebase Hosting, and Gemini paths are implemented/configured in code, but none is reported as live. No project credentials were present, and no deploy URL or cloud-side read/write evidence is available from this workstation.

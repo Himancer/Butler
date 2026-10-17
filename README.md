@@ -20,7 +20,7 @@ Open the URL printed by the runner, normally **http://127.0.0.1:8765**. If the p
 
 Required: Python 3.11+ (verified here with 3.14). Node 18+ is used for JavaScript tests, not for serving the app. Python 3.11-3.13 have not been tested on this laptop.
 
-This implementation uses a browser ES-module frontend, Python's standard-library HTTP server, and SQLite instead of React/FastAPI/Firestore. Those dependencies are not installed and the corporate-approved package source has not been supplied. There are **no pip or npm runtime dependencies**, CDN scripts, cloud credentials in the browser, or policy bypasses.
+This implementation uses a browser ES-module frontend and Python HTTP server. Local mode uses SQLite and local files with no runtime Python dependencies. An optional Cloud Run mode uses Firestore and Cloud Storage through the Google Cloud Python client libraries in `requirements.txt`. No cloud resources or credentials are provisioned by the app, and no cloud service is claimed to be deployed or configured by this repository.
 
 Run **one Butler instance per data directory**. A second independent instance must use a different `--data-dir` as well as a different port. The server intentionally accepts only loopback requests; do not expose it to a network or use it as a production server.
 
@@ -59,9 +59,9 @@ Output: 720 x 1280, 30 fps, H.264/AAC, letterbox or center crop, optional wrappe
 
 ## Enable Google Services
 
-The runner has a Cloud Run entry mode: when Cloud Run sets `K_SERVICE` and `PORT`, Butler binds to `0.0.0.0:$PORT` and obtains Vertex AI credentials from the Cloud Run metadata server. Configure `BUTLER_PUBLIC_ORIGIN` to the exact HTTPS origin users will open, `BUTLER_ALLOWED_HOSTS` to the exact hostnames forwarded to the service (comma-separated, no wildcards), and `BUTLER_COOKIE_SECURE=1`. Local mode continues to bind to loopback by default.
+Cloud Run sets `K_SERVICE` and `PORT`; Butler binds to `0.0.0.0:$PORT` and obtains Google credentials from its runtime service identity using Application Default Credentials. The container selects Vertex AI, Firestore, and Cloud Storage. It refuses to start if Firestore or GCS is replaced with local persistence. Set `BUTLER_ALLOWED_HOSTS` to the exact Firebase Hosting hostnames (comma-separated, no wildcards); secure cookies are enabled in the container. Local mode continues to bind to loopback and use SQLite/local files.
 
-This entry mode does **not** make the application a complete cloud deployment. Butler still stores state in SQLite and media on the container filesystem; those are not durable Cloud Run storage. Firestore, Cloud Storage, Firebase Hosting configuration, and deployment infrastructure are still required before using it as the public hackathon prototype.
+Firebase Hosting is the Firebase product in this deployment: it serves `static/` and rewrites `/api/v1/**` plus `/health` to the `butler-api` Cloud Run service. `firebase.json` contains this route configuration. The configuration and adapters are not evidence of a live deployment; the project, Firestore database, private bucket, IAM, Gemini access, and actual service URLs still need to be configured and verified.
 
 These steps require your approved Google Cloud project, enabled billing/APIs, model availability in the selected region, quotas, and IAM permissions. The app does not create or deploy cloud resources.
 
@@ -97,10 +97,65 @@ Environment variables are listed in `.env.example`. The file is documentation on
 - Optional `BUTLER_DEMO_PASSCODE` adds a demo access-code gate. Set it privately in the launch environment. It is not production identity management.
 - Session cookies are HttpOnly and SameSite=Strict. Secure cookies are not enabled on the local HTTP server. CSRF tokens and exact Origin/Host checks protect mutation routes.
 - Resource lookup always binds the current server session; client-supplied ownership is ignored. Missing and inaccessible resources return the same 404.
-- State and uploads live in `%LOCALAPPDATA%\ButlerPrototype`, **outside the OneDrive source folder**. Choose another local directory with `--data-dir` or `BUTLER_DATA_DIR` if needed.
+- In local mode, state and uploads live in `%LOCALAPPDATA%\ButlerPrototype`, **outside the OneDrive source folder**. Choose another local directory with `--data-dir` or `BUTLER_DATA_DIR` if needed.
+- In Cloud Run mode, session/app records use Firestore and source videos/rendered artifacts use a configured GCS bucket. `/tmp` is only a processing cache; it is not the durable copy. Cloud mode is selected with `BUTLER_STORAGE=firestore`, `BUTLER_MEDIA_STORAGE=gcs`, and `BUTLER_MEDIA_BUCKET`. These modes are opt-in and require the setup below.
 - Sessions expire 24 hours after creation. A cleanup thread checks expiry every five minutes while the app runs, removes session records and their media directory, and repeats at startup. Cleanup is not exact-time deletion and does not run while the application is stopped. OS deletion failures and expired-session cleanup require operational monitoring before production.
 - Render download links are session-bound, HMAC-signed, and valid for ten minutes. Server restart invalidates old links; request fresh ones.
 - Use only consented or synthetic inputs. No purchasing, checkout, social publishing, arbitrary browsing, or arbitrary command tool exists.
+
+## Cloud Run, Firestore, Cloud Storage, And Hosting
+
+The cloud path is wired in code and deployment configuration, but **has not been deployed or verified against a Google Cloud project**. The Cloud Run container build installs FFmpeg, FFprobe, and DejaVu fonts; codec/filter support, real rendering, cloud IAM, and Hosting rewrites must be verified in the target project before the demo. The current local check found Docker CLI 24.0.2, but no gcloud, Firebase CLI, FFmpeg, or FFprobe; the Windows Arial font is present but its Butler path variable is empty. The Docker daemon/image build and cloud services were not verified.
+
+The API uses these Firestore collections, with every record tied to its owning session:
+
+| Collection | Document key | Owner/data |
+| --- | --- | --- |
+| `sessions` | Random session ID | Session state, CSRF token, expiry, and hashed session-token index |
+| `session_tokens` | SHA-256 of the browser token | Owning session ID and expiry; raw bearer token is never stored |
+| `records` | `<kind>_<record-id>` | App records (messages, assets, plans, jobs, captions), each carrying `session_id`; reads also verify the owner |
+| `approvals` | `<session-id>_<idempotency-key>` | Session-scoped plan/version/job approval record |
+| `chat_requests` | `<session-id>_<request-key>` | Session-scoped idempotency response |
+
+Media object keys are session-scoped (`{session_id}/assets/...` and `{session_id}/jobs/...`). The private GCS bucket is only accessed server-side after the API verifies the owning session; `/tmp` materializations are disposable processing cache. The local object adapter preserves SQLite/local-file mode. Do not point multiple local app instances at the same local data directory.
+
+### One-time Google Cloud setup
+
+1. Create/select the team's Google Cloud project, link billing, and add it as a Firebase project. Enable Cloud Run, Cloud Build, Artifact Registry, Firestore, Cloud Storage, Secret Manager, Firebase Hosting, and Vertex AI APIs.
+2. Create a Firestore database in Native mode and a private Cloud Storage bucket in the same or nearby region. Configure a lifecycle rule for abandoned objects as an additional cleanup safeguard; the application also deletes objects when its 24-hour session records expire.
+3. Create a dedicated Cloud Run runtime service account. Grant it `roles/datastore.user`, `roles/storage.objectUser` on the media bucket, `roles/secretmanager.secretAccessor` on the signing-key secret, and `roles/aiplatform.user` for Gemini on Vertex AI. Do not download service-account keys.
+4. Create a Secret Manager secret named `butler-signing-key` with a random value of at least 32 characters. Keep the value out of source control and chat.
+5. Install/use the approved `gcloud` and Firebase CLIs, authenticate, select the project, and deploy the service from this directory. Replace the placeholders and choose the Hosting domain/origins for this project:
+
+```powershell
+gcloud config set project YOUR_PROJECT_ID
+gcloud run deploy butler-api --source . --region us-central1 --allow-unauthenticated --service-account butler-runtime@YOUR_PROJECT_ID.iam.gserviceaccount.com --set-env-vars GOOGLE_CLOUD_PROJECT=YOUR_PROJECT_ID,GOOGLE_CLOUD_LOCATION=asia-south1,BUTLER_VERTEX_MODEL=gemini-3.5-flash,BUTLER_MODEL=vertex,BUTLER_STORAGE=firestore,BUTLER_MEDIA_STORAGE=gcs,BUTLER_MEDIA_BUCKET=YOUR_PRIVATE_BUCKET,BUTLER_ALLOWED_ORIGINS=https://YOUR_PROJECT_ID.web.app\,https://YOUR_PROJECT_ID.firebaseapp.com,BUTLER_ALLOWED_HOSTS=YOUR_PROJECT_ID.web.app\,YOUR_PROJECT_ID.firebaseapp.com --set-secrets BUTLER_SIGNING_KEY=butler-signing-key:latest --no-cpu-throttling --min 1 --max 1 --concurrency 8 --timeout 900
+```
+
+The single-instance, always-allocated CPU settings keep this prototype's in-process render worker alive. This is a demo deployment constraint, not a horizontally scalable worker design. A production system should move rendering into a separately managed Cloud Run worker/queue.
+
+6. The Dockerfile configures FFmpeg/FFprobe and a font path. After building, verify `ffmpeg -encoders` includes `libx264` and AAC and `ffmpeg -filters` includes `drawtext` and `subtitles`; verify the configured font exists. If organizational policy requires a different approved FFmpeg distribution, replace the Docker build package source accordingly.
+7. Deploy Firebase Hosting (the static frontend is served from `static/`; `/api/v1/**` and `/health` rewrite to the deployed `butler-api` service in `us-central1`):
+
+```powershell
+firebase deploy --only hosting --project YOUR_PROJECT_ID
+```
+
+8. Open `https://YOUR_PROJECT_ID.web.app` and check Workspace status. It should show **Firestore**, **Google Cloud Storage (selected; access checked on upload)**, and FFmpeg/FFprobe/font presence. For a real Firestore write/read check, use this PowerShell session against the public Hosting URL:
+
+```powershell
+$origin = 'https://YOUR_PROJECT_ID.web.app'
+$webSession = New-Object Microsoft.PowerShell.Commands.WebRequestSession
+$created = Invoke-RestMethod -Method Post -Uri "$origin/api/v1/sessions" -ContentType 'application/json' -Body '{}' -WebSession $webSession
+$workspace = Invoke-RestMethod -Uri "$origin/api/v1/bootstrap" -WebSession $webSession
+$workspace.capabilities.storage
+```
+
+The last command must return `Firestore`; the create-session request writes the session and token index, and bootstrap reads them back. Confirm matching session/token-index records in the Firestore console. This verifies actual Firestore traffic, not just the UI label. Then upload one short consented clip and verify its object in the private bucket, followed by inspection, approved render, preview, and object-backed exports before presenting the demo.
+
+Cloud Run deployment requires public invocation for Firebase Hosting's Cloud Run rewrite unless project-specific IAM is configured for the integration. The app's optional demo passcode is a demo gate, not managed identity. Local uploads allow 50 MiB; Cloud Run is capped at 30 MB because this app uses an HTTP/1 server and Cloud Run's HTTP/1 request limit is 32 MiB. The app proxies uploads through the API; signed direct-to-GCS uploads are not implemented.
+
+The container is configured to call Gemini on Vertex AI using the Cloud Run service identity (ADC); no token or key belongs in an environment variable. A configured model is not proof of a successful Gemini call: verify a Creator Pack request against the deployed URL and record its result before claiming Gemini is live. Local runs continue to default to local rules.
 
 ## Tests
 
@@ -118,10 +173,10 @@ Browser flows were checked using VS Code's integrated Playwright tools. See `doc
 
 ```mermaid
 flowchart LR
-	Browser[Browser workspace] --> API[Loopback Python API]
+	Browser[Browser workspace] --> API[Python API: local or Cloud Run]
 	API --> Catalog[Fictional sample catalog]
-	API --> DB[(SQLite: owned records)]
-	API --> Files[Private local media directory]
+	API --> DB[(SQLite locally or Firestore in cloud)]
+	API --> Files[Local files or GCS object storage]
 	API --> Worker[Bounded background worker]
 	Worker --> Probe[FFprobe inspection]
 	Worker --> Render[FFmpeg render and verification]
@@ -133,7 +188,9 @@ flowchart LR
 
 ```text
 app/core.py        catalog, validators, SQLite transactions, approval/idempotency
-app/server.py      loopback HTTP API, ownership/CSRF, retention, safe file serving
+app/firestore_store.py Firestore implementation of session/record/idempotency contract
+app/storage.py     local and GCS media-object storage interface
+app/server.py      local/Cloud Run HTTP API, ownership/CSRF, retention, safe file serving
 app/providers.py   optional Vertex AI and Google Speech adapters
 app/media.py       FFprobe inspection, FFmpeg worker, subtitles, ZIP export
 static/            responsive UI, generated bitmap imagery, local icon font
@@ -169,7 +226,7 @@ Errors use `{ "error": { "code": "...", "message": "...", "request_id": "..." } 
 
 ## Remaining BRD Work
 
-This is **not the deployed cloud architecture**. Remaining work includes approved dependency setup and a React/FastAPI migration if required by the hackathon, Firestore and private Cloud Storage adapters, separate Cloud Run worker deployment and service accounts, managed identity, signed cloud uploads, cross-origin storage CORS, production isolation/observability, real verified retailer data, and measured cloud latency.
+The adapters above are **not a verified cloud deployment**. Remaining work includes approved dependency setup, Firestore/GCS IAM and lifecycle configuration, live cloud acceptance, a separately managed Cloud Run worker/queue, managed identity, signed direct-to-GCS uploads, production isolation/observability, real verified retailer data, and measured cloud latency. A React/FastAPI migration is needed only if the hackathon requires it.
 
 Optional scope not implemented: queued-job cancellation, multiple presets, advanced transcription correction/timing, and dashboards. Shopping prose uses basic local intent rules unless Vertex is configured; it is not a general-purpose agent.
 

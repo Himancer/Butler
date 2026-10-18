@@ -12,6 +12,7 @@ Fresh clone `Butler-local-audit-20261018` started at remote `main` commit `d7cb9
 - Fixed shared startup recovery failing another instance's active render. Unexpired leases remain intact, expired attempts use conditional updates, and Firestore's lease matches the local 600-second duration.
 - Shared inspections still have no ownership lease. A truly crashed cloud inspection may require a re-upload; no automatic shared inspection reset is claimed.
 - Python compilation, JS module syntax and `git diff --check` passed. Limited scan of 38 tracked text files found no supported credential patterns; this does not resolve historical key alerts.
+- Dependency advisory scan reported no known vulnerabilities after upgrading pip inside the isolated audit virtual environment to 26.2.1. This is not a scan of the deployed container.
 - No live Google provider, GCP deployment, billing/IAM or Firebase checks were performed. Full local evidence lives in the sibling `Deliverables/Butler_Local_Audit_20261018` directory.
 
 ## Earlier release watch

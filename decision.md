@@ -14,6 +14,8 @@ Evidence after these fixes: 74 Python tests passed without skips, 17 distinct Ja
 
 An additional ten-case real FFmpeg matrix passed all output format/duration/audio/decode/ZIP checks. Keep those synthetic test results separate from semantic AI quality or compatibility with every real camera input. Installing the optional Google Python libraries and passing their dependency compatibility check also does not authenticate or verify live Google services.
 
+The isolated dependency scan identified an outdated pip installer. Upgrade only this audit environment to pip 26.2.1, then rerun the scan: no known vulnerabilities reported. Preserve the distinction between these installed local versions and unknown packages in the deployed container.
+
 ## Product and engineering decisions
 
 ### 1. Make Creator Studio the demo's main story

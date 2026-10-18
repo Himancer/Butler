@@ -4,11 +4,11 @@ import { productArt } from "./art.mjs";
 const element = identifier => document.getElementById(identifier);
 const icon = name => `<span class="icon icon-${name}" aria-hidden="true"></span>`;
 const state = {
-  page: "discover", session: null, capabilities: null, products: [], allProducts: [],
+  page: "discover", session: null, capabilities: null, products: [], allProducts: [], videoWorkflow: null,
   messages: [], assets: [], plans: [], jobs: [], captions: [], asset: null, plan: null,
   job: null, caption: null, busyChat: false, uploading: false, localPreview: null,
   approvalKey: null, pendingMessage: null, polling: null,
-  edit: { trim_start_seconds: 0, trim_end_seconds: 20, fit_mode: "letterbox", title_text: "", subtitles_enabled: false, transcript: "" }
+  edit: { trim_start_seconds: 0, trim_end_seconds: 20, fit_mode: "letterbox", title_text: "", subtitles_enabled: false, transcript: "", shorten_duration_seconds: 12, shorten_target_seconds: 12, shorten_strategy: "smart_highlights", shorten_audio: "preserve", shorten_focus: "balanced" }
 };
 let toastTimer;
 
@@ -161,16 +161,63 @@ async function sendChat(message) {
 }
 
 function collectEdit() {
+  const shortenTarget = Number(element("shorten-duration-range").value);
   state.edit = {
     trim_start_seconds: Number(element("trim-start").value), trim_end_seconds: Number(element("trim-end").value),
     fit_mode: document.querySelector('input[name="fit_mode"]:checked').value,
     title_text: element("video-title").value, subtitles_enabled: element("subtitles-enabled").checked,
-    transcript: element("transcript-input").value
+    transcript: element("transcript-input").value,
+    shorten_duration_seconds: state.videoWorkflow === "summarize" ? shortenTarget : 0,
+    shorten_target_seconds: shortenTarget,
+    shorten_strategy: element("shorten-strategy").value,
+    shorten_audio: document.querySelector('input[name="shorten_audio"]:checked')?.value || "preserve",
+    shorten_focus: element("shorten-focus").value
   };
   element("transcript-field").hidden = !state.edit.subtitles_enabled;
+  updateShortenControls();
+  renderShortenSummary();
   state.plan = null;
   state.approvalKey = null;
   renderPreview();
+}
+
+function renderShortenSummary() {
+  const duration = Number(element("shorten-duration-range").value || 12);
+  const strategy = element("shorten-strategy").selectedOptions[0]?.textContent.split(" — ")[0] || "Smart highlights";
+  const audio = document.querySelector('input[name="shorten_audio"]:checked')?.parentElement?.textContent.trim() || "Preserve original audio where possible";
+  const input = state.asset?.duration_seconds ? durationLabel(state.asset.duration_seconds) : "Longer clip";
+  const focus = element("shorten-focus").selectedOptions[0]?.textContent || "Balanced moments";
+  const fullClip = state.asset?.duration_seconds && Math.abs(duration - state.asset.duration_seconds) < 0.05;
+  element("shorten-config-summary").textContent = state.videoWorkflow === "summarize"
+    ? `${input} input → ${fullClip ? "keep original length" : `${durationLabel(duration)} target`} · ${strategy} · ${focus} · ${audio}`
+    : `${input} input → existing trim range · Smart Shorten off`;
+}
+
+function updateShortenControls() {
+  const enabled = state.videoWorkflow === "summarize";
+  const assetDuration = state.asset?.duration_seconds;
+  const maximum = Math.max(0.1, Math.min(60, assetDuration || 60));
+  const minimum = Math.min(0.1, maximum);
+  const slider = element("shorten-duration-range");
+  const number = element("shorten-duration-number");
+  slider.min = number.min = String(minimum);
+  slider.max = number.max = String(maximum);
+  const target = Math.max(minimum, Math.min(maximum, Number(state.edit.shorten_target_seconds || 12)));
+  slider.value = String(target);
+  number.value = String(target);
+  state.edit.shorten_target_seconds = target;
+  state.edit.shorten_duration_seconds = enabled ? target : 0;
+  slider.disabled = number.disabled = !enabled;
+  for (const button of document.querySelectorAll("[data-duration]")) button.disabled = !enabled || Number(button.dataset.duration) > maximum;
+  const keepOriginal = element("keep-original-duration");
+  keepOriginal.disabled = !enabled || !assetDuration;
+  keepOriginal.textContent = assetDuration ? `Keep original length (${durationLabel(assetDuration)})` : "Keep original length";
+  element("shorten-strategy").disabled = !enabled;
+  element("shorten-focus").disabled = !enabled;
+  for (const radio of document.querySelectorAll('input[name="shorten_audio"]')) radio.disabled = !enabled;
+  element("duration-limit").textContent = assetDuration
+    ? `Choose any length from ${durationLabel(minimum)} to ${durationLabel(assetDuration)}, or keep the full ${durationLabel(assetDuration)} clip.`
+    : "Choose any target from 0.1 to 60 seconds, or upload a clip to use its full length.";
 }
 
 function renderPreview() {
@@ -190,13 +237,34 @@ function renderPreview() {
   element("video-title-overlay").textContent = state.edit.title_text;
   element("video-title-overlay").hidden = !source || !state.edit.title_text || finished;
   element("preview-kind").textContent = finished ? "Rendered output" : "Draft framing";
-  element("preview-duration").textContent = state.asset?.duration_seconds ? durationLabel(state.edit.trim_end_seconds - state.edit.trim_start_seconds) : "720 \u00d7 1280";
+  element("preview-duration").textContent = state.asset?.duration_seconds ? durationLabel(state.edit.shorten_duration_seconds || state.edit.trim_end_seconds - state.edit.trim_start_seconds) : "720 \u00d7 1280";
 }
 
 function renderCreate() {
   if (!state.capabilities) return;
+  renderShortenSummary();
+  element("shorten-note").textContent = state.capabilities.model_mode === "vertex"
+    ? `Full-clip scene changes${state.capabilities.transcription === "google" ? " and transcription cues" : ""}, plus Gemini visual action analysis, guide excerpt selection. Background music generates a new instrumental bed.`
+    : `Local mode ranks full-clip scene changes and audio activity cues. It does not identify actions semantically or send your clip to Gemini. Background music is generated locally.`;
   element("media-setup").hidden = state.capabilities.media.ready;
   const asset = state.asset;
+  const ready = asset?.validation_status === "valid";
+  const summarizeMode = state.videoWorkflow === "summarize";
+  const trimMode = state.videoWorkflow === "trim";
+  element("workflow-choice").hidden = !ready;
+  for (const radio of document.querySelectorAll('input[name="video-workflow"]')) radio.checked = radio.value === state.videoWorkflow;
+  element("edit-title-heading").hidden = !ready || !state.videoWorkflow;
+  element("edit-form").hidden = !ready || !state.videoWorkflow;
+  element("summarize-controls").hidden = !ready || !summarizeMode;
+  element("trim-controls").hidden = !ready || !trimMode;
+  element("advanced-edit-options").hidden = !ready || !state.videoWorkflow;
+  element("caption-workspace").hidden = !ready || !state.videoWorkflow;
+  element("review-plan").hidden = !ready || !state.videoWorkflow;
+  state.edit.shorten_duration_seconds = summarizeMode ? Number(state.edit.shorten_target_seconds || 12) : 0;
+  element("shorten-strategy").value = state.edit.shorten_strategy || "smart_highlights";
+  element("shorten-focus").value = state.edit.shorten_focus || "balanced";
+  for (const radio of document.querySelectorAll('input[name="shorten_audio"]')) radio.checked = radio.value === (state.edit.shorten_audio || "preserve");
+  updateShortenControls();
   const active = state.job && ["queued", "processing"].includes(state.job.status);
   element("asset-status").textContent = asset ? ({ valid: "Inspected", needs_tools: "Tools required", invalid: "Rejected", validating: "Inspecting", uploaded: "Uploaded", reserved: "Waiting" }[asset.validation_status] || asset.validation_status) : "No clip selected";
   element("upload-title").textContent = asset ? asset.original_filename : "Start with your footage.";
@@ -217,7 +285,7 @@ function renderCreate() {
   for (const radio of document.querySelectorAll('input[name="fit_mode"]')) radio.checked = radio.value === state.edit.fit_mode;
   element("transcript-field").hidden = !state.edit.subtitles_enabled;
   element("transcript-note").textContent = state.capabilities.transcription === "google" ? "Google Speech \u00b7 manual text overrides automatic transcription" : "Manual transcript \u00b7 evenly spaced, approximate timing";
-  element("review-plan").disabled = asset?.validation_status !== "valid" || !state.capabilities.media.ready || Boolean(active);
+  element("review-plan").disabled = !ready || !state.videoWorkflow || !state.capabilities.media.ready || Boolean(active);
   renderPreview();
   renderJob();
 }
@@ -259,9 +327,11 @@ async function uploadFile(file) {
     state.asset = await uploadBytes(reservation.upload_url, file);
     if (state.localPreview) URL.revokeObjectURL(state.localPreview);
     state.localPreview = URL.createObjectURL(file);
+    state.videoWorkflow = null;
     state.plan = null;
     state.job = null;
     state.approvalKey = null;
+    state.edit = { trim_start_seconds: 0, trim_end_seconds: 20, fit_mode: "letterbox", title_text: "", subtitles_enabled: false, transcript: "", shorten_duration_seconds: 12, shorten_target_seconds: 12, shorten_strategy: "smart_highlights", shorten_audio: "preserve", shorten_focus: "balanced" };
     state.asset = await api(`/assets/${reservation.id}/complete`, { method: "POST", body: {} });
     state.assets.push(state.asset);
     renderCreate();
@@ -281,14 +351,16 @@ async function reviewPlan() {
   collectEdit();
   const start = state.edit.trim_start_seconds;
   const end = state.edit.trim_end_seconds;
-  if (!Number.isFinite(start) || !Number.isFinite(end) || !(0 <= start && start < end && end <= state.asset.duration_seconds)) { toast("Trim end must follow the start and stay within the clip duration."); return; }
+  if (state.videoWorkflow === "trim" && (!Number.isFinite(start) || !Number.isFinite(end) || !(0 <= start && start < end && end <= state.asset.duration_seconds))) { toast("Trim end must follow the start and stay within the clip duration."); return; }
   element("review-plan").disabled = true;
   try {
     state.plan = await api("/edit-plans", { method: "POST", body: { asset_id: state.asset.id, ...state.edit } });
     state.plans.push(state.plan);
     state.approvalKey = crypto.randomUUID();
     const entries = [
-      ["Clip", state.asset.original_filename], ["Trim", `${durationLabel(start)} to ${durationLabel(end)}`],
+      ["Clip", state.asset.original_filename],
+      ["Edit", state.videoWorkflow === "summarize" ? "Summarize for a post" : "Trim only"],
+      ...(state.edit.shorten_duration_seconds ? [["Smart Shorten", `${durationLabel(state.asset.duration_seconds)} → ${durationLabel(state.edit.shorten_duration_seconds)}`], ["Strategy", state.edit.shorten_strategy.replaceAll("_", " ")], ["Focus", state.edit.shorten_focus], ["Audio", state.edit.shorten_audio]] : [["Trim", `${durationLabel(start)} to ${durationLabel(end)}`]]),
       ["Framing", state.edit.fit_mode === "center_crop" ? "Center crop" : "Letterbox"],
       ["Title", state.edit.title_text || "None"], ["Subtitles", state.edit.subtitles_enabled ? state.edit.transcript ? "Manual transcript" : "Google Speech" : "Off"],
       ["Output", "720 x 1280 \u00b7 H.264/AAC \u00b7 30 fps"], ["Plan version", state.plan.version]
@@ -477,8 +549,15 @@ async function refreshWorkspace(initial = false) {
   if (initial) {
     state.caption = state.captions.at(-1) || null;
     const plan = state.asset ? [...state.plans].reverse().find(candidate => candidate.asset_id === state.asset.id) : null;
-    if (plan) state.edit = { trim_start_seconds: plan.trim_start_seconds, trim_end_seconds: plan.trim_end_seconds, fit_mode: plan.fit_mode, title_text: plan.title_text, subtitles_enabled: plan.subtitles_enabled, transcript: plan.transcript };
-    else if (state.asset?.duration_seconds) state.edit.trim_end_seconds = Math.min(20, state.asset.duration_seconds);
+    if (plan) {
+      state.videoWorkflow = plan.shorten_duration_seconds ? "summarize" : "trim";
+      state.edit = { trim_start_seconds: plan.trim_start_seconds, trim_end_seconds: plan.trim_end_seconds, fit_mode: plan.fit_mode, title_text: plan.title_text, subtitles_enabled: plan.subtitles_enabled, transcript: plan.transcript, shorten_duration_seconds: plan.shorten_duration_seconds || 0, shorten_target_seconds: plan.shorten_duration_seconds || 12, shorten_strategy: plan.shorten_strategy || "smart_highlights", shorten_audio: plan.shorten_audio || "preserve", shorten_focus: plan.shorten_focus || "balanced" };
+      element("shorten-strategy").value = plan.shorten_strategy || "smart_highlights";
+      element("shorten-focus").value = plan.shorten_focus || "balanced";
+      const audio = document.querySelector(`input[name="shorten_audio"][value="${plan.shorten_audio || "preserve"}"]`);
+      if (audio) audio.checked = true;
+    }
+    else if (state.asset?.duration_seconds) { state.videoWorkflow = null; state.edit.trim_end_seconds = Math.min(20, state.asset.duration_seconds); }
     element("category-filter").value = state.session.preferences.category;
     element("currency-filter").value = state.session.preferences.currency;
     element("budget-filter").value = state.session.preferences.budget_minor === null ? "" : state.session.preferences.budget_minor / 100;
@@ -549,6 +628,7 @@ document.addEventListener("click", async event => {
     if (button.dataset.activityId) {
       if (button.dataset.activityType === "asset") {
         state.asset = state.assets.find(asset => asset.id === button.dataset.activityId);
+        state.videoWorkflow = null;
         if (state.localPreview) URL.revokeObjectURL(state.localPreview);
         state.localPreview = null;
         state.job = state.jobs.find(job => state.plans.find(plan => plan.id === job.plan_id)?.asset_id === state.asset.id) || null;
@@ -600,7 +680,34 @@ element("video-file").addEventListener("change", event => uploadFile(event.targe
 element("upload-zone").addEventListener("dragover", event => { event.preventDefault(); element("upload-zone").classList.add("dragging"); });
 element("upload-zone").addEventListener("dragleave", () => element("upload-zone").classList.remove("dragging"));
 element("upload-zone").addEventListener("drop", event => { event.preventDefault(); element("upload-zone").classList.remove("dragging"); if (event.dataTransfer.files.length !== 1) toast("Choose one clip at a time."); else uploadFile(event.dataTransfer.files[0]); });
-element("edit-form").addEventListener("input", collectEdit);
+element("edit-form").addEventListener("input", event => {
+  if (event.target.id === "shorten-duration-number") {
+    const number = Number(event.target.value);
+    if (Number.isFinite(number)) element("shorten-duration-range").value = String(Math.max(Number(element("shorten-duration-range").min), Math.min(Number(element("shorten-duration-range").max), number)));
+  } else if (event.target.id === "shorten-duration-range") {
+    element("shorten-duration-number").value = event.target.value;
+  }
+  collectEdit();
+});
+element("edit-form").addEventListener("change", collectEdit);
+for (const radio of document.querySelectorAll('input[name="video-workflow"]')) radio.addEventListener("change", () => {
+  state.videoWorkflow = radio.value;
+  state.plan = null;
+  state.approvalKey = null;
+  state.job = null;
+  collectEdit();
+  renderCreate();
+});
+for (const button of document.querySelectorAll("[data-duration]")) button.addEventListener("click", () => {
+  const value = Number(button.dataset.duration);
+  element("shorten-duration-range").value = element("shorten-duration-number").value = String(value);
+  collectEdit();
+});
+element("keep-original-duration").addEventListener("click", () => {
+  if (!state.asset?.duration_seconds) return;
+  element("shorten-duration-range").value = element("shorten-duration-number").value = String(state.asset.duration_seconds);
+  collectEdit();
+});
 element("edit-form").addEventListener("submit", event => { event.preventDefault(); reviewPlan(); });
 element("approve-plan").addEventListener("click", approvePlan);
 element("retry-inspection").addEventListener("click", async () => {

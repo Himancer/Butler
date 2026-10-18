@@ -30,7 +30,7 @@ Run **one Butler instance per data directory**. A second independent instance mu
 - A 30-item **fictional sample catalog** covering microphones, lights, tripods, and headphones. Prices are illustrative. No retailer URLs, live availability, observation dates, or verified commercial claims are fabricated.
 - Compare up to three products, including unknown attributes and source labels.
 - Saved products, conversation history, preferences, captions, plans, jobs, and activity survive page refresh and server restart within a 24-hour session.
-- Create: authorized MP4 upload, upload progress, draft framing, trim inputs, title, subtitle setting, manual transcript, and editable captions.
+- Create: authorized MP4 upload, upload progress, draft framing, trim inputs, title, subtitle setting, manual transcript, editable captions, and Smart Shorten exports. Smart Shorten scans scene changes across the full clip, optionally uses Google Speech and Gemini visual analysis when configured, selects chronological excerpts or speeds up the full clip, supports mute/preserved audio, and can generate an original instrumental audio bed.
 - Creator Pack: optional Gemini on Vertex AI turns the creator's brief and transcript into a hook, suggested video title, caption, and hashtags. Every field stays editable; render approval is still explicit, and Butler never publishes for the creator.
 - Server media inspection, immutable plan approval, queued rendering, progress phases, one deliberate retry for retryable jobs, and verified output publication **when approved FFmpeg tools are configured**.
 - Caption download works independently of the media tools. Completed renders offer MP4, caption text, optional SRT, and a ZIP post package. Exports include the latest saved caption edits.
@@ -86,7 +86,7 @@ $env:BUTLER_TRANSCRIPTION = 'google'
 $env:BUTLER_SPEECH_LANGUAGE = 'en-IN'
 ```
 
-Leave the transcript blank for automatic transcription; entered text overrides it with approximate manual timing. The worker transcribes only the selected segment, so timestamps are output-relative. Silent clips need subtitles disabled or a manual transcript.
+Leave the transcript blank for automatic transcription; entered text overrides it with approximate manual timing. Regular trims transcribe only the selected segment. Smart Shorten analyzes the full source, maps detected speech into the selected excerpts, and uses Google Speech when `BUTLER_TRANSCRIPTION=google`. Set `BUTLER_MODEL=vertex` to add Gemini visual moment scoring from a one-frame-per-second contact sheet. Local mode still scans scene changes and speech when configured, then ranks moments without sending video frames to a cloud provider. The background-music choice creates an original instrumental bed locally and mixes it under source audio.
 
 Provider failures are surfaced; the app never silently presents deterministic fixtures as live AI. At most one generation call per turn and one transient retry are used, below the BRD's four-call ceiling. Google calls incur your project's charges.
 

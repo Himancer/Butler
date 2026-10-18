@@ -2,7 +2,8 @@
 
 Last reviewed: 2026-10-18
 Candidate checkout: `Butler-final-ui`, branch `codex/creator-studio-ui`
-Candidate commit: `7ddf1cb4` on top of `origin/main` at `2a14ec08`
+Candidate code: `7ddf1cb4` on top of `origin/main` at `2a14ec08`.
+Documentation follow-up is on the same branch. Pull request: [#4](https://github.com/Himancer/Butler/pull/4), open.
 
 ## Product flows
 
@@ -39,6 +40,7 @@ Reviewed on 2026-10-18:
 - The candidate UI branch already includes the refreshed theme, Butler mark, studio artwork, improved preview controls, and product search/sort.
 - A scan of the current checkout's working files found no Google API key-shaped values. This does not revoke a key or close a GitHub secret-scanning alert from an earlier commit.
 - No live cloud deployment or live Google API call is verified by this local test run.
+- GitHub reported no commit status checks for the documentation follow-up at the time of review.
 
 ## Submission blockers to watch
 

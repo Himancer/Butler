@@ -40,10 +40,11 @@ No Google API key-shaped value was found in this checkout's working files during
 
 ### 2026-10-18
 
-- Confirmed `Butler-final-ui` is on `codex/creator-studio-ui` at `7ddf1cb4`, based on `origin/main` `2a14ec08`.
+- Confirmed `Butler-final-ui` is on `codex/creator-studio-ui`, based on `origin/main` `2a14ec08`; the UI changes start at `7ddf1cb4` and the documentation follow-up remains on the same branch.
 - Ran `python run.py --test`: 58 Python checks passed, one real-render check skipped because approved FFmpeg/FFprobe are unavailable, zero failed.
 - Confirmed all 8 Node UI helper tests passed.
 - Rechecked current source for Google API key-shaped values; none were found. GitHub's earlier alerts still require revocation and resolution.
 - Added `flow.md` to document what users can do and the verified/unverified deployment paths.
 - Added this file to record the product, UX, security, and release decisions behind the candidate.
+- Pushed the documentation follow-up to the existing branch and attached open PR #4; GitHub reported no commit status checks at review time.
 - Next priority: verify the deployed URL and cloud services, then perform a real video render; avoid adding more features until these demo-critical paths work.

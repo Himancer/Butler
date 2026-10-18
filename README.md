@@ -6,6 +6,8 @@ The current build is a runnable **local prototype** of the attached BRD. Its pri
 
 Product narrative and a short demo run-of-show: [`docs/pitch-story.md`](docs/pitch-story.md).
 
+Current product flow and release verification: [`flow.md`](flow.md). Decisions and review log: [`decision.md`](decision.md).
+
 The original planning HTML is unchanged.
 
 ## Start

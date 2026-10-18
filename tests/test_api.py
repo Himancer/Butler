@@ -91,6 +91,11 @@ class APITests(unittest.TestCase):
         self.assertEqual(len(bootstrap["messages"]), 2)
         self.assertEqual(bootstrap["session"]["preferences"]["budget_minor"], 500000)
 
+    def test_product_search_api_filters_by_keyword(self):
+        status, data, _ = self.own("GET", "/api/v1/products?category=microphones&currency=INR&max_price_minor=350000&q=USB-C")
+        self.assertEqual(status, 200)
+        self.assertEqual({product["id"] for product in data["products"]}, {"mic-01", "mic-03", "mic-10"})
+
     def test_compound_demo_request_starts_with_shopping_not_caption(self):
         _, response, _ = self.own("POST", "/api/v1/chat", {"message": "Find a microphone under 5000 INR, compare three options, and help turn my uploaded clip into a reel with a caption.", "client_message_id": uuid.uuid4().hex})
         self.assertEqual(response["intent"], "shopping")

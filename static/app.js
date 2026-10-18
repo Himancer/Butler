@@ -1,4 +1,4 @@
-import { budgetMinor, comparisonRows, durationLabel, escapeHtml, formatMoney, parseHashtags, selectedIds, shortTime } from "./ui.mjs";
+import { budgetMinor, comparisonRows, durationLabel, escapeHtml, formatMoney, mediaSetupMessage, parseHashtags, previewWindow, selectedIds, shortTime } from "./ui.mjs";
 import { productArt } from "./art.mjs";
 
 const element = identifier => document.getElementById(identifier);
@@ -86,12 +86,39 @@ function emptyState(symbol, heading, detail = "") {
 }
 
 function renderProducts() {
-  element("product-grid").innerHTML = state.products.length ? state.products.map(productCard).join("") : emptyState("search", "No match this time.", "No sample products meet these filters.");
+  const searchTerm = element("product-query").value.trim();
+  const emptyDetail = searchTerm ? `No sample products match “${searchTerm}”. Try the live listings link above for this search.` : "No sample products meet these filters.";
+  const sortBy = element("sort-filter").value;
+  const products = [...state.products].sort((left, right) => {
+    if (sortBy === "price-desc") return right.price_minor - left.price_minor || left.id.localeCompare(right.id);
+    if (sortBy === "name") return left.name.localeCompare(right.name);
+    return left.price_minor - right.price_minor || left.id.localeCompare(right.id);
+  });
+  element("product-grid").innerHTML = products.length ? products.map(productCard).join("") : emptyState("search", "No match this time.", emptyDetail);
   element("result-count").textContent = `${state.products.length} ${state.products.length === 1 ? "result" : "results"}`;
   const count = state.session?.selected_product_ids.length || 0;
   element("compare-toolbar").hidden = count === 0;
   element("compare-count").textContent = `${count} selected`;
   element("open-comparison").disabled = count === 0;
+}
+
+function updateLiveShoppingSearch() {
+  const term = element("product-query").value.trim();
+  const link = element("live-shopping-search");
+  if (!term) {
+    link.hidden = true;
+    link.removeAttribute("href");
+    return;
+  }
+  const budget = element("budget-filter").value.trim();
+  const currency = element("currency-filter").value;
+  const liveQuery = budget ? `${term} under ${budget} ${currency}` : term;
+  const search = new URL("https://www.google.com/search");
+  search.searchParams.set("tbm", "shop");
+  search.searchParams.set("q", liveQuery);
+  search.searchParams.set("gl", "in");
+  link.href = search.toString();
+  link.hidden = false;
 }
 
 function renderSaved() {
@@ -105,9 +132,11 @@ async function loadProducts() {
   const budget = budgetMinor(element("budget-filter").value);
   const category = element("category-filter").value;
   const currency = element("currency-filter").value;
+  const searchTerm = element("product-query").value.trim();
   const query = new URLSearchParams({ currency });
   if (category) query.set("category", category);
   if (budget !== null) query.set("max_price_minor", budget);
+  if (searchTerm) query.set("q", searchTerm);
   const data = await api(`/products?${query}`);
   state.products = data.products;
   if (state.session) await persistSession({ preferences: { ...state.session.preferences, category: category || state.session.preferences.category, budget_minor: budget, currency } });
@@ -135,6 +164,10 @@ async function sendChat(message) {
     element("chat-input").value = "";
     const bootstrap = await api("/bootstrap");
     state.session = bootstrap.session;
+    if (response.intent === "shopping") {
+      element("product-query").value = "";
+      updateLiveShoppingSearch();
+    }
     if (response.products.length) {
       state.products = response.products;
       element("category-filter").value = state.session.preferences.category;
@@ -238,6 +271,45 @@ function renderPreview() {
   element("video-title-overlay").hidden = !source || !state.edit.title_text || finished;
   element("preview-kind").textContent = finished ? "Rendered output" : "Draft framing";
   element("preview-duration").textContent = state.asset?.duration_seconds ? durationLabel(state.edit.shorten_duration_seconds || state.edit.trim_end_seconds - state.edit.trim_start_seconds) : "720 \u00d7 1280";
+  renderPreviewTimeline();
+}
+
+function renderPreviewTimeline() {
+  const video = element("video-preview");
+  const finished = state.job?.status === "succeeded";
+  const assetReady = state.asset?.validation_status === "valid";
+  const duration = finished && Number.isFinite(video.duration) ? video.duration : Number(state.asset?.duration_seconds);
+  const available = assetReady && Number.isFinite(duration) && duration > 0;
+  const timeline = element("preview-timeline");
+  timeline.hidden = !available;
+  if (!available) return;
+
+  const trimMode = !finished && state.videoWorkflow === "trim";
+  const window = finished ? { start: 0, end: duration } : previewWindow(state.videoWorkflow, state.edit.trim_start_seconds, state.edit.trim_end_seconds, duration);
+  const scrubber = element("preview-scrubber");
+  const current = Number.isFinite(video.currentTime) ? video.currentTime : window.start;
+  const clampedCurrent = Math.max(window.start, Math.min(window.end, current));
+  if (trimMode && video.readyState >= 1 && (current < window.start || current > window.end)) video.currentTime = clampedCurrent;
+  scrubber.min = String(window.start);
+  scrubber.max = String(Math.max(window.start, window.end));
+  scrubber.value = String(clampedCurrent);
+  scrubber.disabled = video.readyState < 1 || window.end - window.start < 0.05;
+  element("preview-current").textContent = durationLabel(clampedCurrent);
+  element("preview-total").textContent = durationLabel(duration);
+  element("preview-in").textContent = durationLabel(window.start);
+  element("preview-out").textContent = durationLabel(window.end);
+  element("timeline-label").textContent = finished ? "RENDERED OUTPUT" : trimMode ? "TRIM PREVIEW" : "FULL CLIP";
+  element("timeline-endpoints").hidden = !trimMode;
+}
+
+function seekPreview(time) {
+  const video = element("video-preview");
+  if (video.readyState < 1) return;
+  const finished = state.job?.status === "succeeded";
+  const duration = finished && Number.isFinite(video.duration) ? video.duration : Number(state.asset?.duration_seconds);
+  const window = finished ? { start: 0, end: duration } : previewWindow(state.videoWorkflow, state.edit.trim_start_seconds, state.edit.trim_end_seconds, duration);
+  video.currentTime = Math.max(window.start, Math.min(window.end, Number(time)));
+  renderPreviewTimeline();
 }
 
 function renderCreate() {
@@ -246,7 +318,9 @@ function renderCreate() {
   element("shorten-note").textContent = state.capabilities.model_mode === "vertex"
     ? `Full-clip scene changes${state.capabilities.transcription === "google" ? " and transcription cues" : ""}, plus Gemini visual action analysis, guide excerpt selection. Background music generates a new instrumental bed.`
     : `Local mode ranks full-clip scene changes and audio activity cues. It does not identify actions semantically or send your clip to Gemini. Background music is generated locally.`;
-  element("media-setup").hidden = state.capabilities.media.ready;
+  const media = state.capabilities.media;
+  element("media-setup").hidden = media.ready;
+  element("media-setup-message").textContent = mediaSetupMessage(media);
   const asset = state.asset;
   const ready = asset?.validation_status === "valid";
   const summarizeMode = state.videoWorkflow === "summarize";
@@ -655,8 +729,11 @@ document.addEventListener("change", async event => {
 });
 
 element("filter-form").addEventListener("submit", event => { event.preventDefault(); loadProducts().catch(error => toast(error.message)); });
+element("product-query").addEventListener("input", updateLiveShoppingSearch);
+element("budget-filter").addEventListener("input", updateLiveShoppingSearch);
+element("sort-filter").addEventListener("change", renderProducts);
 element("category-filter").addEventListener("change", () => loadProducts().catch(error => toast(error.message)));
-element("currency-filter").addEventListener("change", () => loadProducts().catch(error => toast(error.message)));
+element("currency-filter").addEventListener("change", () => { updateLiveShoppingSearch(); loadProducts().catch(error => toast(error.message)); });
 element("chat-form").addEventListener("submit", event => { event.preventDefault(); sendChat(element("chat-input").value); });
 element("chat-input").addEventListener("keydown", event => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); sendChat(event.target.value); } });
 element("open-comparison").addEventListener("click", () => openComparison().catch(error => toast(error.message)));
@@ -716,8 +793,24 @@ element("retry-inspection").addEventListener("click", async () => {
     renderCreate(); startPolling();
   } catch (error) { toast(error.message); }
 });
-element("video-preview").addEventListener("loadedmetadata", () => { if (state.job?.status !== "succeeded" && state.edit.trim_start_seconds) element("video-preview").currentTime = state.edit.trim_start_seconds; });
-element("video-preview").addEventListener("timeupdate", () => { if (state.job?.status !== "succeeded" && element("video-preview").currentTime >= state.edit.trim_end_seconds) { element("video-preview").pause(); element("video-preview").currentTime = state.edit.trim_start_seconds; } });
+element("preview-scrubber").addEventListener("input", event => seekPreview(Number(event.target.value)));
+element("jump-to-trim-start").addEventListener("click", () => seekPreview(Number(state.edit.trim_start_seconds)));
+element("jump-to-trim-end").addEventListener("click", () => seekPreview(Number(state.edit.trim_end_seconds)));
+element("video-preview").addEventListener("loadedmetadata", () => {
+  renderPreviewTimeline();
+});
+element("video-preview").addEventListener("timeupdate", () => {
+  const video = element("video-preview");
+  if (state.job?.status !== "succeeded" && state.videoWorkflow === "trim") {
+    const window = previewWindow("trim", state.edit.trim_start_seconds, state.edit.trim_end_seconds, state.asset?.duration_seconds);
+    if (video.currentTime < window.start) video.currentTime = window.start;
+    else if (window.end > window.start && video.currentTime >= window.end) {
+      video.pause();
+      video.currentTime = window.start;
+    }
+  }
+  renderPreviewTimeline();
+});
 element("generate-caption").addEventListener("click", generateCaption);
 element("use-suggested-title").addEventListener("click", () => {
   if (!state.caption?.title) return;

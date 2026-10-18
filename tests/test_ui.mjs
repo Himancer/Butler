@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { budgetMinor, comparisonRows, durationLabel, escapeHtml, formatMoney, parseHashtags, selectedIds } from "../static/ui.mjs";
+import { budgetMinor, comparisonRows, durationLabel, escapeHtml, formatMoney, mediaSetupMessage, parseHashtags, previewWindow, selectedIds } from "../static/ui.mjs";
 
 test("untrusted product names and messages are escaped", () => {
   assert.equal(escapeHtml('<img onerror="bad">&'), "&lt;img onerror=&quot;bad&quot;&gt;&amp;");
@@ -35,4 +35,23 @@ test("hashtags are validated and deduplicated", () => {
 test("clip durations are stable and human readable", () => {
   assert.equal(durationLabel(20), "20.0 s");
   assert.equal(durationLabel(NaN), "Unknown");
+});
+
+test("trim preview respects the selected range while summarize preview keeps the full clip", () => {
+  assert.deepEqual(previewWindow("trim", 4, 18, 25), { start: 4, end: 18 });
+  assert.deepEqual(previewWindow("summarize", 4, 18, 25), { start: 0, end: 25 });
+  assert.deepEqual(previewWindow("trim", -3, 80, 25), { start: 0, end: 25 });
+  assert.deepEqual(previewWindow("trim", 20, 10, 25), { start: 20, end: 20 });
+});
+
+test("media setup explains exactly which creator features are blocked", () => {
+  assert.equal(
+    mediaSetupMessage({ ffmpeg: false, ffprobe: false, font: true, ready: false }),
+    "Missing FFmpeg and FFprobe. Clip inspection and video rendering are unavailable. Creator Pack captions and caption downloads still work. Configure the approved tools and restart Butler."
+  );
+  assert.equal(
+    mediaSetupMessage({ ffmpeg: true, ffprobe: true, font: false, ready: false }),
+    "Missing a title/subtitle font. Video rendering is unavailable. Creator Pack captions and caption downloads still work. Configure the approved tools and restart Butler."
+  );
+  assert.equal(mediaSetupMessage({ ffmpeg: true, ffprobe: true, font: true, ready: true }), "");
 });

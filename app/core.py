@@ -110,18 +110,31 @@ class Catalog:
             if product["category"] not in CATEGORIES:
                 raise ValueError("Unsupported catalog category")
 
-    def search(self, category: str | None = None, max_price_minor: int | None = None, currency: str = "INR") -> list[dict[str, Any]]:
+    def search(self, category: str | None = None, max_price_minor: int | None = None, currency: str = "INR", text_query: str | None = None) -> list[dict[str, Any]]:
         if category is not None and category not in CATEGORIES:
             raise ButlerError("INVALID_CATEGORY", "Choose a supported product category.")
         if max_price_minor is not None and (type(max_price_minor) is not int or max_price_minor < 0):
             raise ButlerError("INVALID_BUDGET", "Budget must be an integer amount in minor units.")
         if currency not in ("INR", "USD", "EUR"):
             raise ButlerError("INVALID_CURRENCY", "Supported currencies are INR, USD, and EUR.")
+        if text_query is not None and (not isinstance(text_query, str) or len(text_query) > 120):
+            raise ButlerError("INVALID_QUERY", "Search terms must be text of at most 120 characters.")
+        terms = text_query.casefold().split() if text_query else []
+        def matches_text(product: dict[str, Any]) -> bool:
+            if not terms:
+                return True
+            searchable = " ".join([
+                product["name"], product["category"], product["tag"], product["description"],
+                *product["specifications"].keys(), *product["specifications"].values()
+            ]).casefold()
+            return all(term in searchable for term in terms)
+
         matches = [
             product for product in self.products
             if (category is None or product["category"] == category)
             and product["currency"] == currency
             and (max_price_minor is None or product["price_minor"] <= max_price_minor)
+            and matches_text(product)
         ]
         return sorted(matches, key=lambda product: (product["price_minor"], product["id"]))
 

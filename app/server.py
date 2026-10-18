@@ -441,7 +441,7 @@ class ButlerHandler(BaseHTTPRequestHandler):
                 budget = int(raw_budget) if raw_budget else None
             except ValueError as error:
                 raise ButlerError("INVALID_BUDGET", "Budget must be an integer in minor units.") from error
-            products = self.app.catalog.search(query.get("category", [None])[0], budget, query.get("currency", ["INR"])[0])
+            products = self.app.catalog.search(query.get("category", [None])[0], budget, query.get("currency", ["INR"])[0], query.get("q", [""])[0].strip())
             self.send_json({"products": [self.app.product(product) for product in products], "metadata": self.app.catalog.metadata})
         elif method == "POST" and path == "/api/v1/products/compare":
             self.send_json({"products": [self.app.product(product) for product in self.app.catalog.compare(values.get("product_ids"))], "metadata": self.app.catalog.metadata})

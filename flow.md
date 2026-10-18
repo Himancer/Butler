@@ -56,3 +56,14 @@ Reviewed on 2026-10-18:
 5. Check that the final pitch PDF, public repository, deployed prototype, and demo video links are accessible and fit the portal's stated limits before submission.
 
 Do not describe a blocker as complete until the corresponding live check has evidence recorded here.
+
+
+## October 18: public Cloud Run acceptance and fixes
+
+- Target: https://butler-api-944347183553.us-central1.run.app.
+- Health returned HTTP 200. A new public session returned 201; bootstrap returned 200 and upload reservation returned 201. These exercise Firestore session and asset metadata operations.
+- Uploading the bundled owned demo clip returned HTTP 503 MEDIA_STORAGE_UNAVAILABLE, request 98581895c4e3485188c168a51f3b7b39. No cloud render can be claimed successful.
+- A real Creator Pack request returned HTTP 503 PROVIDER_UNAVAILABLE, request 80a5e859d0fd43f9b16c7489a5afbcc2. Gemini is configured but its successful use remains unverified.
+- Discover now includes visible Amazon India and Flipkart search links for the typed query/category and similar real products from each sample card. They are external search links, not scraped listings or verified prices.
+- Upload and AI errors now distinguish provider status categories, with sanitized logs that omit tokens and raw provider payloads.
+- Checks after code changes: 63 Python tests run, 62 passed and one real-render test skipped; 9 Node helper tests passed. Cloud bucket configuration and IAM are pending Meenakshi's resource details.

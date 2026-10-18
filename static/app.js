@@ -1,4 +1,4 @@
-import { budgetMinor, comparisonRows, durationLabel, escapeHtml, formatMoney, mediaSetupMessage, parseHashtags, previewWindow, selectedIds, shortTime } from "./ui.mjs";
+import { marketplaceLinks, similarProductQuery, budgetMinor, comparisonRows, durationLabel, escapeHtml, formatMoney, mediaSetupMessage, parseHashtags, previewWindow, selectedIds, shortTime } from "./ui.mjs";
 import { productArt } from "./art.mjs";
 
 const element = identifier => document.getElementById(identifier);
@@ -74,11 +74,15 @@ function renderMessages() {
   element("send-message").disabled = state.busyChat || !state.session;
 }
 
+function marketplaceButtons(query) {
+  return marketplaceLinks(query).map(link => `<a class="marketplace-link" href="${escapeHtml(link.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(link.name)} ↗</a>`).join("");
+}
+
 function productCard(product) {
   const saved = state.session?.saved_product_ids.includes(product.id);
   const selected = state.session?.selected_product_ids.includes(product.id);
   const fact = product.specifications.Connection || product.specifications.Mount || product.specifications.Power || "Details unknown";
-  return `<article class="product-card ${selected ? "selected" : ""}" data-product-id="${escapeHtml(product.id)}"><div class="product-visual ${["mint", "peach", "lavender"].includes(product.accent) ? product.accent : "mint"}"><div class="product-visual-top"><label class="product-checkbox" title="Select ${escapeHtml(product.name)} for comparison"><input type="checkbox" data-compare-id="${escapeHtml(product.id)}" aria-label="Compare ${escapeHtml(product.name)}" ${selected ? "checked" : ""}></label><button class="icon-button bookmark-button ${saved ? "saved" : ""}" data-save-id="${escapeHtml(product.id)}" aria-label="${saved ? "Unsave" : "Save"} ${escapeHtml(product.name)}" title="${saved ? "Unsave" : "Save"} ${escapeHtml(product.name)}" aria-pressed="${Boolean(saved)}">${icon("bookmark")}</button></div><img src="${productArt(product.image)}" alt="Illustration of fictional ${escapeHtml(product.name)}" width="640" height="480"><span class="product-tag">${escapeHtml(product.tag)}</span></div><div class="product-body"><div class="product-category">${escapeHtml(product.category)}</div><h3>${escapeHtml(product.name)}</h3><p class="product-fact">${escapeHtml(fact)}</p><div class="product-bottom"><strong class="product-price">${escapeHtml(formatMoney(product.price_minor, product.currency))}</strong><button class="icon-button" data-detail-id="${escapeHtml(product.id)}" aria-label="View ${escapeHtml(product.name)} details" title="View details">${icon("arrow-right")}</button></div></div></article>`;
+  return `<article class="product-card ${selected ? "selected" : ""}" data-product-id="${escapeHtml(product.id)}"><div class="product-visual ${["mint", "peach", "lavender"].includes(product.accent) ? product.accent : "mint"}"><div class="product-visual-top"><label class="product-checkbox" title="Select ${escapeHtml(product.name)} for comparison"><input type="checkbox" data-compare-id="${escapeHtml(product.id)}" aria-label="Compare ${escapeHtml(product.name)}" ${selected ? "checked" : ""}></label><button class="icon-button bookmark-button ${saved ? "saved" : ""}" data-save-id="${escapeHtml(product.id)}" aria-label="${saved ? "Unsave" : "Save"} ${escapeHtml(product.name)}" title="${saved ? "Unsave" : "Save"} ${escapeHtml(product.name)}" aria-pressed="${Boolean(saved)}">${icon("bookmark")}</button></div><img src="${productArt(product.image)}" alt="Illustration of fictional ${escapeHtml(product.name)}" width="640" height="480"><span class="product-tag">${escapeHtml(product.tag)}</span></div><div class="product-body"><div class="product-category">${escapeHtml(product.category)}</div><h3>${escapeHtml(product.name)}</h3><p class="product-fact">${escapeHtml(fact)}</p><div class="product-bottom"><strong class="product-price">${escapeHtml(formatMoney(product.price_minor, product.currency))}</strong><button class="icon-button" data-detail-id="${escapeHtml(product.id)}" aria-label="View ${escapeHtml(product.name)} details" title="View details">${icon("arrow-right")}</button></div><div class="marketplace-links"><small>Find similar real products</small>${marketplaceButtons(similarProductQuery(product))}</div></div></article>`;
 }
 
 function emptyState(symbol, heading, detail = "") {
@@ -103,13 +107,9 @@ function renderProducts() {
 }
 
 function updateLiveShoppingSearch() {
-  const term = element("product-query").value.trim();
+  const term = element("product-query").value.trim() || element("category-filter").value || "creator equipment";
+  element("marketplace-searches").innerHTML = marketplaceButtons(term);
   const link = element("live-shopping-search");
-  if (!term) {
-    link.hidden = true;
-    link.removeAttribute("href");
-    return;
-  }
   const budget = element("budget-filter").value.trim();
   const currency = element("currency-filter").value;
   const liveQuery = budget ? `${term} under ${budget} ${currency}` : term;
@@ -647,6 +647,7 @@ async function refreshWorkspace(initial = false) {
   element("chat-mode").textContent = state.capabilities.assistant;
   element("chat-footnote").textContent = `${state.capabilities.assistant} \u00b7 private session`;
   element("saved-count").textContent = state.session.saved_product_ids.length;
+  updateLiveShoppingSearch();
   element("catalog-total").textContent = `${state.allProducts.length} essentials`;
   element("fatal-error").hidden = true;
   renderMessages();
@@ -732,7 +733,7 @@ element("filter-form").addEventListener("submit", event => { event.preventDefaul
 element("product-query").addEventListener("input", updateLiveShoppingSearch);
 element("budget-filter").addEventListener("input", updateLiveShoppingSearch);
 element("sort-filter").addEventListener("change", renderProducts);
-element("category-filter").addEventListener("change", () => loadProducts().catch(error => toast(error.message)));
+element("category-filter").addEventListener("change", () => { updateLiveShoppingSearch(); loadProducts().catch(error => toast(error.message)); });
 element("currency-filter").addEventListener("change", () => { updateLiveShoppingSearch(); loadProducts().catch(error => toast(error.message)); });
 element("chat-form").addEventListener("submit", event => { event.preventDefault(); sendChat(element("chat-input").value); });
 element("chat-input").addEventListener("keydown", event => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); sendChat(event.target.value); } });

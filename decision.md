@@ -55,3 +55,12 @@ Use the Render Free service only to let the team open and exercise the app. It d
 - Corrected access-mode reporting so a configured `BUTLER_PUBLIC_ORIGIN` is shown as “Public preview,” and added a regression check. `python run.py --test` passed 60 tests with one local real-render test skipped; Node UI helper tests passed 8/8; `npm run check` and `git diff --check` passed.
 - Render's Docker image installed FFmpeg and FFprobe. The bundled 12-second sample completed an 8-second trim, but larger or user-supplied videos still need testing. This Render check is not evidence for Cloud Run, Firestore, Cloud Storage, Firebase Hosting, or Gemini.
 - Next priority: verify Meenakshi's GCP deployment and service calls, test with the team's authorized clip, and resolve the earlier GitHub secret alerts by rotating the old keys.
+
+
+## October 18: marketplace navigation and cloud error diagnosis
+
+Provide real retailer search destinations while retaining explicit fictional-catalog labels. Never send a fictional sample name as if it were a real purchasable SKU; build similar-item searches from category/type and connection. Retailer prices and availability require checking on their sites.
+
+Live tests confirmed both cloud upload and AI generation failures. Add distinct messages for storage permission, missing bucket, throttling and generic failures, and Google AI status categories. Log only exception type/status, not credentials or raw upstream responses. These changes improve diagnosis; they do not repair cloud IAM or prove uploads/Gemini work. Preserve cloud persistence requirements rather than silently falling back to ephemeral local files.
+
+Regression verification: 62 Python tests passed, 1 real-render test skipped, and 9 Node tests passed. Await bucket name and runtime identity before selecting the cloud repair. The working cloud service must be redeployed from this branch to receive these code changes.

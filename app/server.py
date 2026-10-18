@@ -549,7 +549,7 @@ class ButlerHandler(BaseHTTPRequestHandler):
         except MediaStorageError as error:
             partial.unlink(missing_ok=True)
             path.unlink(missing_ok=True)
-            asset.update(validation_status="invalid", error_code="MEDIA_STORAGE_UNAVAILABLE", error_message="The upload could not be saved to durable media storage. Try again when storage is available.")
+            asset.update(validation_status="invalid", error_code="MEDIA_STORAGE_UNAVAILABLE", error_message=str(error))
             self.app.store.put("assets", asset)
             raise ButlerError("MEDIA_STORAGE_UNAVAILABLE", asset["error_message"], 503) from error
         except Exception:

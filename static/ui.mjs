@@ -79,3 +79,18 @@ export function mediaSetupMessage(media) {
 
   return `Missing ${missingLabel}. ${unavailableSentence} ${unavailable.length === 1 ? "is" : "are"} unavailable. Creator Pack captions and caption downloads still work. Configure the approved tools and restart Butler.`;
 }
+
+
+export function marketplaceLinks(query) {
+  const term = String(query || "creator equipment").trim().slice(0, 200) || "creator equipment";
+  return [
+    { name: "Amazon India", url: "https://www.amazon.in/s?k=" + encodeURIComponent(term) },
+    { name: "Flipkart", url: "https://www.flipkart.com/search?q=" + encodeURIComponent(term) }
+  ];
+}
+
+export function similarProductQuery(product) {
+  // Sample names are fictional; search for the type and connection instead.
+  return [product.image || product.category, product.specifications?.Connection || ""]
+    .filter(Boolean).join(" ");
+}

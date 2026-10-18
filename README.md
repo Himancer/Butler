@@ -6,6 +6,8 @@ The current build is a runnable **local prototype** of the attached BRD. Its pri
 
 Product narrative and a short demo run-of-show: [`docs/pitch-story.md`](docs/pitch-story.md).
 
+Current product flow and release verification: [`flow.md`](flow.md). Decisions and review log: [`decision.md`](decision.md).
+
 The original planning HTML is unchanged.
 
 ## Start
@@ -26,11 +28,11 @@ Run **one Butler instance per data directory**. A second independent instance mu
 
 ## What Works Locally
 
-- Discover: text conversation, budget clarification, backend category/currency/budget filtering, and an honest no-match state.
+- Discover: text conversation, budget clarification, backend category/currency/budget/keyword filtering, sample sorting by price or name, and an honest no-match state. “Open Google Shopping” carries the typed query and optional budget to a separate tab; Butler does not scrape, verify, or compare those external offers.
 - A 30-item **fictional sample catalog** covering microphones, lights, tripods, and headphones. Prices are illustrative. No retailer URLs, live availability, observation dates, or verified commercial claims are fabricated.
 - Compare up to three products, including unknown attributes and source labels.
 - Saved products, conversation history, preferences, captions, plans, jobs, and activity survive page refresh and server restart within a 24-hour session.
-- Create: authorized MP4 upload, upload progress, draft framing, trim inputs, title, subtitle setting, manual transcript, editable captions, and Smart Shorten exports. Smart Shorten scans scene changes across the full clip, optionally uses Google Speech and Gemini visual analysis when configured, selects chronological excerpts or speeds up the full clip, supports mute/preserved audio, and can generate an original instrumental audio bed.
+- Create: authorized MP4 upload, upload progress, draft framing, workflow-aware preview scrubbing, trim inputs, title, subtitle setting, manual transcript, editable captions, and Smart Shorten exports. Trim preview stays within the selected in/out range; Smart Shorten preview can scrub the full source clip. Smart Shorten scans scene changes across the full clip, optionally uses Google Speech and Gemini visual analysis when configured, selects chronological excerpts or speeds up the full clip, supports mute/preserved audio, and can generate an original instrumental audio bed.
 - Creator Pack: optional Gemini on Vertex AI turns the creator's brief and transcript into a hook, suggested video title, caption, and hashtags. Every field stays editable; render approval is still explicit, and Butler never publishes for the creator.
 - Server media inspection, immutable plan approval, queued rendering, progress phases, one deliberate retry for retryable jobs, and verified output publication **when approved FFmpeg tools are configured**.
 - Caption download works independently of the media tools. Completed renders offer MP4, caption text, optional SRT, and a ZIP post package. Exports include the latest saved caption edits.
@@ -163,7 +165,7 @@ The container is configured to call Gemini on Vertex AI using the Cloud Run serv
 python run.py --test
 ```
 
-This is also `npm test`. It runs Python unit/real-HTTP integration tests, JavaScript syntax checks, and six Node UI helper tests. Tests isolate SQLite/media in temporary directories and do not need cloud credentials. Model/media-boundary unit tests use explicit stand-ins; they are not evidence of a real video render.
+This is also `npm test`. It runs Python unit/real-HTTP integration tests, JavaScript syntax checks, and eight Node UI helper tests. Tests isolate SQLite/media in temporary directories and do not need cloud credentials. Model/media-boundary unit tests use explicit stand-ins; they are not evidence of a real video render.
 
 The real FFmpeg integration test generates a synthetic clip, trims/renders it with title/subtitles, verifies an edited caption in the ZIP, and checks duplicate execution. It **skips explicitly** until FFmpeg, FFprobe, and a font are configured. Run it before claiming video rendering readiness.
 
@@ -205,7 +207,7 @@ All application routes are under `/api/v1`. Sessions are established with `POST 
 | `GET /bootstrap` | Session, capabilities, retained messages/plans/assets/jobs/captions |
 | `PUT /session` | Validated preferences, saved products, selected product IDs |
 | `POST /chat` | Message plus unique `client_message_id`; duplicate IDs reuse responses |
-| `GET /products` | Category, `max_price_minor`, currency filtering |
+| `GET /products` | Category, `max_price_minor`, currency, and optional `q` keyword filtering (sample catalog only) |
 | `POST /products/compare` | One to three catalog IDs |
 | `POST /assets/upload-url` | Reserve one server-chosen upload location with declared size and consent |
 | `PUT /assets/{id}/upload` | Single-use, cookie/CSRF-authorized streamed binary upload |

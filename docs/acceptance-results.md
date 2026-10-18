@@ -110,3 +110,29 @@ This is a current command/path check only; it does not mean any cloud service is
 | GCS | Adapter configured for private bucket use; IAM/object persistence not live-verified |
 
 The Cloud Run, Firestore, GCS, Firebase Hosting, and Gemini paths are implemented/configured in code, but none is reported as live. No project credentials were present, and no deploy URL or cloud-side read/write evidence is available from this workstation.
+
+## UI And Product Search Follow-up (18 October 2026)
+
+Reviewed the `codex/creator-studio-ui` working branch on top of `origin/main` (`2a14ec08`).
+
+| Check | Result |
+| --- | --- |
+| Python and HTTP suite | 58 passed, 0 failed, 1 skipped (`python run.py --test`; rerun on 18 October 2026) |
+| JavaScript UI helpers | 8 passed, 0 failed; module syntax checks passed |
+| Browser console | No JavaScript errors observed in the local review session |
+| Search and sort | `USB-C` returned seven matching microphone samples; price sort changed the first displayed sample from ₹1,499 to ₹8,499 |
+| Responsive layout | No horizontal overflow at 390, 900, 1024, and 1440 CSS pixels; sidebar breakpoints verified at 0, 76, 190, and 220 pixels |
+| Creator Studio sample upload | Sample upload reached `Tools required`; FFprobe is absent, so inspection, editing-plan approval, and real rendering could not be exercised in this workstation run |
+| Art assets | New Butler mark and Studio illustration parsed as valid SVG and appeared in the browser |
+| Cloud deploy | No `.firebaserc`, deploy URL, gcloud, or Firebase CLI in this checkout environment. The inferred Firebase defaults `butler-511910.web.app` and `butler-hackathon.web.app` returned HTTP 404; this does not rule out a different hosting or Cloud Run URL |
+| Secret-shaped text scan | No Google API key, private-key block, or GitHub token pattern found in tracked working files or the visible Git history. This does not establish that keys previously reported by GitHub were revoked |
+
+The preview now has a seek control that follows the selected workflow: trim mode clamps playback to its in/out points, while Smart Shorten previews the full source. The pure range logic is covered by the JavaScript tests. Real video preview and render behavior remain unverified here because FFprobe/FFmpeg are unavailable.
+
+## Judge Readiness Snapshot
+
+- **Product story:** focused on a creator-owned clip, editable post copy, and explicit render approval. The sample gear catalog remains secondary.
+- **Product claims:** the catalog still contains fictional products and illustrative prices; Google Shopping is a separate handoff, not an implemented scraper or verified price-comparison service.
+- **Google services:** Cloud Run, Firestore, Cloud Storage, Firebase Hosting rewrites, and Vertex AI adapters are present in code/config, but live deployment, reads/writes, Gemini responses, IAM, and billing controls remain unverified.
+- **Submission gate:** a public working deployment, a working media render on that deployment, the prescribed pitch-deck PDF, a public repository link, and a demo video of no more than three minutes still need to be verified in the portal.
+- **Operational risk:** the documented public Cloud Run invocation can expose model and render endpoints to unexpected use. A demo passcode, budget alerts/quotas, and a test from a fresh anonymous browser should be confirmed before sharing a live URL.

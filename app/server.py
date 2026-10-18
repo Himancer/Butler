@@ -88,7 +88,8 @@ class ButlerApplication:
 
     def capabilities(self) -> dict[str, Any]:
         media_storage = self.object_store.mode + (" (selected; access checked on upload)" if self.object_store.mode == "Google Cloud Storage" else "")
-        return {"assistant": "Gemini on Vertex AI" if self.provider_mode == "vertex" else "Local rules", "model_mode": self.provider_mode, "catalog": self.catalog.metadata, "media": self.tools.status(), "transcription": self.transcription_mode, "retention_hours": 24, "storage": "Firestore" if self.storage_mode == "firestore" else "Local SQLite", "media_storage": media_storage, "access_mode": "Cloud Run" if os.environ.get("K_SERVICE") else "Loopback only", "max_upload_bytes": self.max_upload_bytes}
+        access_mode = "Cloud Run" if os.environ.get("K_SERVICE") else "Public preview" if os.environ.get("BUTLER_PUBLIC_ORIGIN") else "Loopback only"
+        return {"assistant": "Gemini on Vertex AI" if self.provider_mode == "vertex" else "Local rules", "model_mode": self.provider_mode, "catalog": self.catalog.metadata, "media": self.tools.status(), "transcription": self.transcription_mode, "retention_hours": 24, "storage": "Firestore" if self.storage_mode == "firestore" else "Local SQLite", "media_storage": media_storage, "access_mode": access_mode, "max_upload_bytes": self.max_upload_bytes}
 
     def product(self, product: dict[str, Any]) -> dict[str, Any]:
         return {**product, "source_label": self.catalog.metadata["source"], "source_url": None, "price_observed_at": None, "availability_note": "Not checked", "catalog_version": self.catalog.metadata["version"], "sample": True}
@@ -441,7 +442,7 @@ class ButlerHandler(BaseHTTPRequestHandler):
                 budget = int(raw_budget) if raw_budget else None
             except ValueError as error:
                 raise ButlerError("INVALID_BUDGET", "Budget must be an integer in minor units.") from error
-            products = self.app.catalog.search(query.get("category", [None])[0], budget, query.get("currency", ["INR"])[0])
+            products = self.app.catalog.search(query.get("category", [None])[0], budget, query.get("currency", ["INR"])[0], query.get("q", [""])[0].strip())
             self.send_json({"products": [self.app.product(product) for product in products], "metadata": self.app.catalog.metadata})
         elif method == "POST" and path == "/api/v1/products/compare":
             self.send_json({"products": [self.app.product(product) for product in self.app.catalog.compare(values.get("product_ids"))], "metadata": self.app.catalog.metadata})
@@ -548,7 +549,7 @@ class ButlerHandler(BaseHTTPRequestHandler):
         except MediaStorageError as error:
             partial.unlink(missing_ok=True)
             path.unlink(missing_ok=True)
-            asset.update(validation_status="invalid", error_code="MEDIA_STORAGE_UNAVAILABLE", error_message="The upload could not be saved to durable media storage. Try again when storage is available.")
+            asset.update(validation_status="invalid", error_code="MEDIA_STORAGE_UNAVAILABLE", error_message=str(error))
             self.app.store.put("assets", asset)
             raise ButlerError("MEDIA_STORAGE_UNAVAILABLE", asset["error_message"], 503) from error
         except Exception:

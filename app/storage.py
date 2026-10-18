@@ -1,6 +1,7 @@
 """Durable media-object adapters used by local and Cloud Run deployments."""
 from __future__ import annotations
 
+import logging
 import os
 import shutil
 from pathlib import Path
@@ -9,6 +10,19 @@ from typing import Protocol
 
 class MediaStorageError(RuntimeError):
     pass
+
+
+def storage_failure(error: Exception, operation: str) -> MediaStorageError:
+    # Avoid logging provider messages, which can contain signed URLs.
+    code = getattr(error, "code", None)
+    logging.getLogger(__name__).error("Cloud Storage %s failed: %s (status=%s)", operation, type(error).__name__, code if isinstance(code, int) else "unknown")
+    if code in (401, 403):
+        return MediaStorageError("Video storage access is denied. The deployment owner must grant the Cloud Run service account access to the media bucket, then retry the upload.")
+    if code == 404:
+        return MediaStorageError("The video storage bucket was not found. The deployment owner must check the configured bucket name, then retry the upload.")
+    if code == 429:
+        return MediaStorageError("Video storage is temporarily rate limited. Please wait a moment and choose the clip again.")
+    return MediaStorageError("Video storage is temporarily unavailable. Please retry. If it continues, ask the deployment owner to check Cloud Storage logs and configuration.")
 
 
 class MediaObjectStore(Protocol):
@@ -69,7 +83,7 @@ class GCSMediaObjectStore:
         try:
             self.bucket.blob(key).upload_from_filename(str(source), timeout=120)
         except Exception as error:
-            raise MediaStorageError("Could not save this media object in Cloud Storage") from error
+            raise storage_failure(error, "upload") from error
 
     def download(self, key: str, destination: Path) -> None:
         destination.parent.mkdir(parents=True, exist_ok=True)

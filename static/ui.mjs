@@ -50,3 +50,47 @@ export function durationLabel(seconds) {
   if (!Number.isFinite(Number(seconds))) return "Unknown";
   return `${Number(seconds).toFixed(1)} s`;
 }
+
+export function previewWindow(workflow, trimStart, trimEnd, duration) {
+  const total = Number(duration);
+  const clipEnd = Number.isFinite(total) && total > 0 ? total : 0;
+  if (workflow !== "trim" || !clipEnd) return { start: 0, end: clipEnd };
+  const startValue = Number(trimStart);
+  const endValue = Number(trimEnd);
+  const start = Number.isFinite(startValue) ? Math.max(0, Math.min(clipEnd, startValue)) : 0;
+  const boundedEnd = Number.isFinite(endValue) ? Math.max(0, Math.min(clipEnd, endValue)) : clipEnd;
+  return { start, end: Math.max(start, boundedEnd) };
+}
+
+export function mediaSetupMessage(media) {
+  if (media?.ready) return "";
+
+  const missing = [
+    !media?.ffmpeg && "FFmpeg",
+    !media?.ffprobe && "FFprobe",
+    !media?.font && "a title/subtitle font"
+  ].filter(Boolean);
+  const unavailable = [];
+  if (!media?.ffprobe) unavailable.push("clip inspection");
+  if (!media?.ffmpeg || !media?.ffprobe || !media?.font) unavailable.push("video rendering");
+  const missingLabel = missing.length ? missing.join(" and ") : "a required media tool";
+  const unavailableLabel = unavailable.join(" and ");
+  const unavailableSentence = unavailableLabel.charAt(0).toUpperCase() + unavailableLabel.slice(1);
+
+  return `Missing ${missingLabel}. ${unavailableSentence} ${unavailable.length === 1 ? "is" : "are"} unavailable. Creator Pack captions and caption downloads still work. Configure the approved tools and restart Butler.`;
+}
+
+
+export function marketplaceLinks(query) {
+  const term = String(query || "creator equipment").trim().slice(0, 200) || "creator equipment";
+  return [
+    { name: "Amazon India", url: "https://www.amazon.in/s?k=" + encodeURIComponent(term) },
+    { name: "Flipkart", url: "https://www.flipkart.com/search?q=" + encodeURIComponent(term) }
+  ];
+}
+
+export function similarProductQuery(product) {
+  // Sample names are fictional; search for the type and connection instead.
+  return [product.image || product.category, product.specifications?.Connection || ""]
+    .filter(Boolean).join(" ");
+}

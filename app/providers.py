@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import json
+import logging
 import os
 import re
 import shutil
@@ -68,7 +69,15 @@ class VertexAdapter:
             except urllib.error.HTTPError as error:
                 if error.code in (429, 500, 502, 503, 504) and attempt == 0:
                     continue
-                raise ButlerError("PROVIDER_UNAVAILABLE", "The Google provider rejected this request. Check model access, region, billing, and quotas.", 503) from error
+                logging.getLogger(__name__).error("Google provider request failed: HTTP %s", error.code)
+                messages = {
+                    400: "Google rejected the AI request configuration. Ask the deployment owner to check the model and request settings.",
+                    401: "Google AI authentication failed. Ask the deployment owner to check the service identity.",
+                    403: "Google denied access to the AI service. Ask the deployment owner to check API enablement, service-account permissions, billing, and model access.",
+                    404: "The configured Google AI resource was not found. Ask the deployment owner to check the model name, project, and region.",
+                    429: "Google AI is at its quota or capacity limit. Please try again shortly.",
+                }
+                raise ButlerError("PROVIDER_UNAVAILABLE", messages.get(error.code, "Google AI is temporarily unavailable. Please try again shortly."), 503) from error
             except (urllib.error.URLError, TimeoutError, OSError, json.JSONDecodeError) as error:
                 if attempt == 0:
                     continue

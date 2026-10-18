@@ -44,7 +44,7 @@ Target about 2 minutes 45 seconds. The submission portal says the video is **up 
 - **Firestore:** durable application records, once the active create/read/update flow is wired to Firestore and verified.
 - **Firebase:** name the Firebase product actually used (for example, Hosting or Authentication) after the team verifies its deployed path.
 
-The current local prototype uses SQLite and local files. Its Cloud Run entry mode is not, by itself, proof of a cloud deployment, and local persistence is not proof of Firestore use. Update this section after Saniya's cloud integration is merged and smoke-checked.
+The current local prototype uses SQLite and local files. Its Cloud Run entry mode is not, by itself, proof of a cloud deployment, and local persistence is not proof of Firestore use. Update this section after the GCP deployment is complete and smoke-checked.
 
 ## Short pitch
 

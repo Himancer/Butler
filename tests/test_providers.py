@@ -1,10 +1,25 @@
 import unittest
+import urllib.error
+from unittest.mock import patch
 
 from app.core import ButlerError
 from app.providers import VertexAdapter
 
 
 class VertexAdapterTests(unittest.TestCase):
+    def test_provider_status_is_actionable_and_does_not_expose_raw_errors(self):
+        for status, expected in [(403, "denied access"), (404, "not found"), (429, "quota")]:
+            with self.subTest(status=status):
+                adapter = VertexAdapter()
+                adapter.token = lambda: "test-token"
+                failure = urllib.error.HTTPError("https://example.invalid", status, "private provider details", {}, None)
+                with patch("urllib.request.urlopen", side_effect=failure), self.assertLogs("app.providers", level="ERROR") as logs:
+                    with self.assertRaises(ButlerError) as caught:
+                        adapter.request("https://example.invalid", {})
+                self.assertIn(expected, str(caught.exception))
+                self.assertNotIn("private provider details", str(caught.exception))
+                self.assertNotIn("test-token", " ".join(logs.output))
+
     def test_creator_pack_uses_transcript_and_caps_hashtags(self):
         adapter = VertexAdapter()
         captured = {}

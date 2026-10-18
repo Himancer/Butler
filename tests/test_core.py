@@ -29,6 +29,16 @@ class CatalogTests(unittest.TestCase):
     def test_empty_results_are_honest(self):
         self.assertEqual(self.catalog.search("microphones", 500, "INR"), [])
 
+    def test_keyword_search_matches_names_descriptions_and_specifications(self):
+        products = self.catalog.search("microphones", 350000, "INR", "USB-C")
+        self.assertEqual({product["id"] for product in products}, {"mic-01", "mic-03", "mic-10"})
+        products = self.catalog.search(None, None, "INR", "cold shoe")
+        self.assertEqual({product["id"] for product in products}, {"mic-07", "light-02", "light-05"})
+
+    def test_keyword_search_rejects_oversized_query(self):
+        with self.assertRaises(ButlerError):
+            self.catalog.search(text_query="x" * 121)
+
     def test_unknown_and_duplicate_comparison_ids_are_rejected(self):
         for product_ids in (["invented"], ["mic-01", "mic-01"], ["mic-01"] * 4):
             with self.assertRaises(ButlerError):

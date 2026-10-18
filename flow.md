@@ -17,6 +17,15 @@ Fresh clone `Butler-local-audit-20261018` started at remote `main` commit `d7cb9
 
 ## Earlier release watch
 
+### Heartbeat check at 20:19 IST, October 18
+
+- GitHub main and the remote candidate branch were still `d7cb9b83`; no open PR was returned. PRs #1 through #4 are merged.
+- Fast-forwarded the clean local candidate to the audited `1215e6ec` tree. The separate older Butler checkout and the local audit checkout were not modified.
+- The public Cloud Run `/health` and homepage both returned HTTP 200. Served HTML lacks `id="remove-video"`, and served `app.js` does not import `studio.mjs`. The public frontend therefore does not yet contain the clip-selection release already on GitHub main. These responses do not identify an exact deployed commit.
+- No new evidence of successful live Gemini access arrived. No provider generation, media upload, cloud configuration change or deployment was performed by this heartbeat.
+- Local audit fixes remain ahead of GitHub main until deliberately released. A deployment refresh is still required to expose the clip-selection controls on the public URL.
+- Candidate verification after fast-forward: 74 Python tests passed with real FFmpeg enabled and zero skips; 17 JavaScript tests passed. Python compilation, additional JS module syntax and Git whitespace checks passed. Evidence: sibling `Deliverables/Butler_Local_Audit_20261018/watch-2048/candidate-full-tests.log`. This tested tree is ready for the authorized release push.
+
 Last reviewed: 2026-10-18
 Candidate checkout: `Butler-final-ui`, branch `codex/creator-studio-ui`
 Candidate code: `7ddf1cb4` on top of `origin/main` at `2a14ec08`.

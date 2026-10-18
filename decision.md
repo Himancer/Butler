@@ -18,6 +18,10 @@ The isolated dependency scan identified an outdated pip installer. Upgrade only 
 
 ## Product and engineering decisions
 
+### October 18 release watch: promote verified local fixes without assuming deployment
+
+Fast-forward the clean candidate to the two audited local commits after checking ancestry and the seven-file diff. Preserve all other checkouts. Compare the actual public HTML/module contents with expected release markers: a successful health response alone cannot show that a deployment contains a fix. The live page still lacks the Remove video markup and studio module, so record that release gap explicitly. Keep Gemini access and cloud behavior unverified until an actual successful service operation is recorded.
+
 ### 1. Make Creator Studio the demo's main story
 
 Butler's clearest working journey is helping a creator turn an authorized clip into an editable, approved post package. The product-discovery catalog remains supporting context. This keeps the demonstration focused on an end-to-end user outcome rather than presenting an unfinished collection of unrelated agents.

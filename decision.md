@@ -64,3 +64,7 @@ Provide real retailer search destinations while retaining explicit fictional-cat
 Live tests confirmed both cloud upload and AI generation failures. Add distinct messages for storage permission, missing bucket, throttling and generic failures, and Google AI status categories. Log only exception type/status, not credentials or raw upstream responses. These changes improve diagnosis; they do not repair cloud IAM or prove uploads/Gemini work. Preserve cloud persistence requirements rather than silently falling back to ephemeral local files.
 
 Regression verification: 62 Python tests passed, 1 real-render test skipped, and 9 Node tests passed. Await bucket name and runtime identity before selecting the cloud repair. The working cloud service must be redeployed from this branch to receive these code changes.
+
+## October 18: safe provider reason codes
+
+Use an explicit allowlist of Google ErrorInfo enums rather than displaying raw error bodies. The shared HTTP 403 message prevents distinguishing configuration causes. Known reason codes can guide the deployment owner while unknown upstream content remains private. No change to product fundamentals, IAM, model selection or cloud configuration.

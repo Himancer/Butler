@@ -1,9 +1,11 @@
+import io
+import json
 import unittest
 import urllib.error
 from unittest.mock import patch
 
 from app.core import ButlerError
-from app.providers import VertexAdapter
+from app.providers import VertexAdapter, google_error_reason
 
 
 class VertexAdapterTests(unittest.TestCase):
@@ -19,6 +21,15 @@ class VertexAdapterTests(unittest.TestCase):
                 self.assertIn(expected, str(caught.exception))
                 self.assertNotIn("private provider details", str(caught.exception))
                 self.assertNotIn("test-token", " ".join(logs.output))
+
+    def test_error_reason_is_allowlisted_and_raw_details_are_discarded(self):
+        for reason, expected in [("BILLING_DISABLED", "BILLING_DISABLED"), ("secret-user-content", "UNSPECIFIED")]:
+            payload = {"error": {"message": "private content", "details": [{"@type": "type.googleapis.com/google.rpc.ErrorInfo", "reason": reason, "metadata": {"token": "private-token"}}]}}
+            error = urllib.error.HTTPError("https://example.invalid", 403, "Forbidden", {}, io.BytesIO(json.dumps(payload).encode()))
+            self.assertEqual(google_error_reason(error), expected)
+        for raw in [b"[]", b"null", b"not json", b'{"error":null}']:
+            error = urllib.error.HTTPError("https://example.invalid", 403, "Forbidden", {}, io.BytesIO(raw))
+            self.assertEqual(google_error_reason(error), "UNSPECIFIED")
 
     def test_creator_pack_uses_transcript_and_caps_hashtags(self):
         adapter = VertexAdapter()

@@ -67,3 +67,9 @@ Do not describe a blocker as complete until the corresponding live check has evi
 - Discover now includes visible Amazon India and Flipkart search links for the typed query/category and similar real products from each sample card. They are external search links, not scraped listings or verified prices.
 - Upload and AI errors now distinguish provider status categories, with sanitized logs that omit tokens and raw provider payloads.
 - Checks after code changes: 63 Python tests run, 62 passed and one real-render test skipped; 9 Node helper tests passed. Cloud bucket configuration and IAM are pending Meenakshi's resource details.
+
+## October 18: distinguish Google access denials
+
+The Vertex API enablement was confirmed by the deployment owner's screenshot. Runtime role and target configuration are not independently confirmed. Added allowlisted Google ErrorInfo reason handling for API-disabled, billing-disabled, IAM, scope, consumer-project and security-policy denials. Raw provider prose, metadata, tokens and user input are never included in diagnostics. Unknown reasons retain the generic message. This is a diagnostic repair, not evidence that cloud Gemini works.
+
+Verification: 64 Python tests run, 63 passed, 1 real-render test skipped; 9 JavaScript tests passed; JavaScript syntax and git diff whitespace checks passed. Deployment and another real Gemini request are still required.

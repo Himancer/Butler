@@ -16,6 +16,32 @@ from typing import Any
 from app.core import ButlerError, bounded_text
 
 
+GOOGLE_ERROR_REASONS = {
+    "SERVICE_DISABLED": "The Google AI API is disabled for the project used by this request.",
+    "BILLING_DISABLED": "Billing is disabled for the project used by this AI request.",
+    "IAM_PERMISSION_DENIED": "The identity making this AI request lacks a required IAM permission.",
+    "ACCESS_TOKEN_SCOPE_INSUFFICIENT": "The AI access token lacks the required scope. Check for an obsolete token override.",
+    "CONSUMER_INVALID": "Google rejected the consumer project configured for this AI request.",
+    "SECURITY_POLICY_VIOLATED": "An organization security policy blocked this AI request.",
+}
+
+
+def google_error_reason(error: urllib.error.HTTPError) -> str:
+    """Extract only recognized reason enums; never expose upstream prose or metadata."""
+    try:
+        body = json.loads(error.read(65536))
+        details = body.get("error", {}).get("details", [])
+        if isinstance(details, list):
+            for detail in details:
+                if isinstance(detail, dict) and detail.get("@type") == "type.googleapis.com/google.rpc.ErrorInfo":
+                    reason = detail.get("reason")
+                    if isinstance(reason, str) and reason in GOOGLE_ERROR_REASONS:
+                        return reason
+    except (AttributeError, TypeError, ValueError, OSError):
+        pass
+    return "UNSPECIFIED"
+
+
 class VertexAdapter:
     def __init__(self) -> None:
         self.project = os.environ.get("GOOGLE_CLOUD_PROJECT", "")
@@ -69,7 +95,8 @@ class VertexAdapter:
             except urllib.error.HTTPError as error:
                 if error.code in (429, 500, 502, 503, 504) and attempt == 0:
                     continue
-                logging.getLogger(__name__).error("Google provider request failed: HTTP %s", error.code)
+                reason = google_error_reason(error)
+                logging.getLogger(__name__).error("Google provider request failed: HTTP %s reason=%s", error.code, reason)
                 messages = {
                     400: "Google rejected the AI request configuration. Ask the deployment owner to check the model and request settings.",
                     401: "Google AI authentication failed. Ask the deployment owner to check the service identity.",
@@ -77,7 +104,10 @@ class VertexAdapter:
                     404: "The configured Google AI resource was not found. Ask the deployment owner to check the model name, project, and region.",
                     429: "Google AI is at its quota or capacity limit. Please try again shortly.",
                 }
-                raise ButlerError("PROVIDER_UNAVAILABLE", messages.get(error.code, "Google AI is temporarily unavailable. Please try again shortly."), 503) from error
+                message = GOOGLE_ERROR_REASONS.get(reason, messages.get(error.code, "Google AI is temporarily unavailable. Please try again shortly."))
+                if reason != "UNSPECIFIED":
+                    message += f" Diagnostic: {reason}."
+                raise ButlerError("PROVIDER_UNAVAILABLE", message, 503) from error
             except (urllib.error.URLError, TimeoutError, OSError, json.JSONDecodeError) as error:
                 if attempt == 0:
                     continue

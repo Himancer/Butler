@@ -28,7 +28,7 @@ Documentation follow-up is on the same branch. Pull request: [#4](https://github
 - **Local prototype:** Python HTTP server, SQLite, and local files. This is the mode used by local tests.
 - **Intended cloud route:** Firebase Hosting serves the UI and rewrites API requests to Cloud Run; the service is configured to use Firestore, Cloud Storage, and optional Gemini on Vertex AI.
 - Code and configuration are not proof of a live deployment. A public URL, Cloud Run health response, Firestore and Storage operations, IAM, and a real Gemini request still need live verification.
-- **Render test preview:** https://butler-preview-test.onrender.com runs the candidate Docker branch separately from GCP. It uses local rules, a fictional sample catalog, SQLite and files under ephemeral `/tmp`, and manual transcription. It has a demo passcode. The Render `/health` endpoint returned HTTP 200 on 2026-10-18. This confirms the web process starts; it does not verify GCP services or real retailer data.
+- **Render test preview:** https://butler-preview-test.onrender.com runs the candidate Docker branch separately from GCP. It uses local rules, a fictional sample catalog, SQLite and files under ephemeral `/tmp`, and manual transcription. It has a demo passcode. On 2026-10-18, `/health` returned HTTP 200, sample search and comparison worked, FFprobe inspected the bundled 12-second clip, and FFmpeg produced a verified 8-second trim. These checks do not verify GCP services or real retailer data.
 - The Render Free instance can sleep when idle and has no persistent disk. Sessions, uploads, and rendered files may be lost after a restart, deploy, or sleep cycle. Keep it for temporary app review; do not use it as the submission deployment or for durable creator media.
 - Voice interaction and a team of autonomous personal-assistant agents are future scope, not current working functionality.
 
@@ -39,11 +39,12 @@ Reviewed on 2026-10-18:
 - `python run.py --test`: 60 Python tests passed; one real-render integration test skipped; zero failures.
 - Node UI helper tests: 8 passed; zero failures.
 - `npm run check`: passed.
-- Render test preview `/health`: HTTP 200. The app loaded in a fresh browser, the demo access-code gate accepted the configured code, and the sample catalog rendered. The badge initially said “Loopback only”; a fix now reports “Public preview” when `BUTLER_PUBLIC_ORIGIN` is configured and is being deployed.
-- The skipped render test needs approved FFmpeg, FFprobe, and a font. Unit-test stand-ins do not prove that a real clip renders.
+- Render test preview `/health`: HTTP 200. The app loaded in a fresh browser, the demo access-code gate accepted the configured code, and the sample catalog rendered. Its status badge reports “Public preview.”
+- On the preview, searching `USB-C` returned seven fictional samples, comparison showed unknown prices and unchecked availability honestly, and the bundled 12-second clip passed inspection. An approved 0–8 second trim completed and the job panel reported “Verified output is ready.” Local-rules Creator Pack generation produced editable example copy and hashtags.
+- The local integration render test remains skipped because this local environment lacks approved FFmpeg/FFprobe tools. The hosted sample render proves only that specific short clip and settings path, not all input videos or larger workloads.
 - The candidate UI branch already includes the refreshed theme, Butler mark, studio artwork, improved preview controls, and product search/sort.
 - A scan of the current checkout's working files found no Google API key-shaped values. This does not revoke a key or close a GitHub secret-scanning alert from an earlier commit.
-- No Cloud Run deployment, Firestore/GCS operation, or live Google API call is verified by the Render test preview or this local test run.
+- No Cloud Run deployment, Firestore/GCS operation, Firebase Hosting route, Vertex AI call, or live Google API call is verified by the Render test preview or this local test run.
 - GitHub reported no commit status checks for the documentation follow-up at the time of review.
 
 ## Submission blockers to watch

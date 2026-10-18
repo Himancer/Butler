@@ -208,7 +208,7 @@ def highlight_intervals(duration: float, target: float, scene_times: list[float]
     scene_weight, speech_weight = {"speech": (1.5, 8.0), "visual": (8.0, 1.5)}.get(focus, (3.0, 2.0))
     chosen: list[float] = []
     for _ in range(count):
-        best_start, best_score = 0.0, float("-inf")
+        best_start, best_score = None, float("-inf")
         for start in candidates:
             end = start + piece
             if any(not (end <= prior or start >= prior + piece) for prior in chosen):
@@ -220,6 +220,12 @@ def highlight_intervals(duration: float, target: float, scene_times: list[float]
             score = visual_score * 8.0 + scene_score * scene_weight + min(speech_score, piece) * speech_weight + spacing_score * 0.05
             if score > best_score:
                 best_start, best_score = start, score
+        if best_start is None:
+            # Greedy picks can leave gaps too small for another excerpt, even
+            # when their total length would fit. Spread all four excerpts
+            # across the clip instead of replaying the default first segment.
+            gap = (duration - target) / (count - 1)
+            return [(index * (piece + gap), min(duration, index * (piece + gap) + piece)) for index in range(count)]
         chosen.append(best_start)
     return [(start, start + piece) for start in sorted(chosen)]
 
@@ -540,14 +546,26 @@ class MediaEngine:
         return [*filenames, "post-package.zip"]
 
     def recover(self) -> None:
-        for asset in self.store.list("assets"):
-            if asset["validation_status"] == "validating":
-                asset.update(validation_status="uploaded", error_message="Inspection was interrupted. Retry inspection.")
-                self.store.put("assets", asset)
+        shared = getattr(self.store, "shared", False)
+        # Shared assets have no inspection ownership lease yet. A new instance
+        # must not reset an inspection that another instance is still running.
+        if not shared:
+            for asset in self.store.list("assets"):
+                if asset["validation_status"] == "validating":
+                    asset.update(validation_status="uploaded", error_message="Inspection was interrupted. Retry inspection.")
+                    self.store.put("assets", asset)
         for job in self.store.list("jobs"):
             if job["status"] == "processing":
-                job.update(status="failed", phase="failed", lease_until=None, error_code="WORKER_RESTART", error_message="Butler restarted during this render. One deliberate retry is available.")
-                self.store.put("jobs", job)
+                updates = {"status": "failed", "phase": "failed", "lease_until": None, "error_code": "WORKER_RESTART", "error_message": "Butler restarted during this render. One deliberate retry is available."}
+                if shared:
+                    lease = job.get("lease_until")
+                    if type(lease) not in (int, float) or not math.isfinite(lease) or lease > time.time():
+                        continue
+                    # The record may have advanced since list() returned it.
+                    self.store.update_job(job["id"], job["session_id"], job["attempt_count"], updates)
+                else:
+                    job.update(updates)
+                    self.store.put("jobs", job)
             elif job["status"] == "queued":
                 self.dispatch(job)
 

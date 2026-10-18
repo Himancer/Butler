@@ -2,6 +2,18 @@
 
 Last reviewed: 2026-10-18
 
+## October 18: fresh local audit and focused reliability fixes
+
+Clone remote main `d7cb9b83` into a separate audit checkout to preserve ongoing work. Use isolated SQLite/media data and local rules, configure portable FFmpeg with a verified checksum, and distinguish actual video execution from mocked Google integration tests.
+
+When greedy highlight selection cannot place another excerpt, use a nonoverlapping chronological fallback with the requested total length. Never silently default to replaying the opening segment. Cover near-full targets and hybrid behavior with regressions.
+
+Firestore records are shared across service instances. A new process must not classify another instance's unexpired render as abandoned. Recover only known expired attempts with a conditional status/attempt update, and use the same 600-second processing lease as local workers. Preserve active inspections; inspection ownership leases are future hardening, and a genuinely interrupted shared inspection currently requires re-upload.
+
+Evidence after these fixes: 74 Python tests passed without skips, 17 distinct JavaScript tests passed, and 88 independent real-HTTP checks passed. The browser observed an eight-second sample render and correct removal/refresh behavior; browser transfer permissions prevented the file chooser/download checks. Correct README discrepancies about `.env` parsing, test coverage and worker lease duration. This audit does not prove live Google service access or deploy the changes.
+
+An additional ten-case real FFmpeg matrix passed all output format/duration/audio/decode/ZIP checks. Keep those synthetic test results separate from semantic AI quality or compatibility with every real camera input. Installing the optional Google Python libraries and passing their dependency compatibility check also does not authenticate or verify live Google services.
+
 ## Product and engineering decisions
 
 ### 1. Make Creator Studio the demo's main story

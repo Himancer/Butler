@@ -12,6 +12,9 @@ from app.core import ButlerError, SESSION_TTL, new_id
 
 
 class FirestoreStore:
+    # Records can be used by several Cloud Run instances or revisions at once.
+    shared = True
+
     def __init__(self, project: str = "") -> None:
         try:
             from google.cloud import firestore
@@ -152,7 +155,7 @@ class FirestoreStore:
             job = json.loads(snapshot.get("data"))
             if job["status"] != "queued":
                 return None
-            job.update(status="processing", phase="validating", attempt_count=job["attempt_count"] + 1, updated_at=time.time(), lease_until=time.time() + 240)
+            job.update(status="processing", phase="validating", attempt_count=job["attempt_count"] + 1, updated_at=time.time(), lease_until=time.time() + 600)
             transaction.update(reference, {"data": json.dumps(job), "updated_at": job["updated_at"]})
             return job
 

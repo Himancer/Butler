@@ -3,10 +3,10 @@ import time
 import unittest
 import zipfile
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from app.core import ButlerError, Store, new_id, validate_plan
-from app.media import MediaEngine, MediaTools, hybrid_intervals, manual_subtitles, subtitle_clock, write_srt
+from app.media import MediaEngine, MediaTools, highlight_intervals, hybrid_intervals, manual_subtitles, subtitle_clock, write_srt
 
 
 class MemoryMediaObjects:
@@ -114,6 +114,23 @@ class SubtitleTests(unittest.TestCase):
 
 
 class SmartShortenTests(unittest.TestCase):
+    def test_highlights_do_not_repeat_when_greedy_selection_runs_out_of_space(self):
+        for target in (9.0, 9.5, 9.8):
+            with self.subTest(target=target):
+                intervals = highlight_intervals(10.0, target, [])
+                self.assertEqual(len(intervals), 4)
+                self.assertTrue(all(0 <= start < end <= 10.0 for start, end in intervals))
+                self.assertTrue(all(left[1] <= right[0] for left, right in zip(intervals, intervals[1:])))
+                self.assertAlmostEqual(sum(end - start for start, end in intervals), target)
+
+    def test_short_clips_and_hybrid_keep_unique_excerpts_and_requested_length(self):
+        for duration, target in ((0.5, 0.3), (1.0, 0.7), (10.0, 7.2), (10.0, 7.6)):
+            with self.subTest(duration=duration, target=target):
+                intervals, speed = hybrid_intervals(duration, target, [duration / 2])
+                self.assertTrue(all(0 <= start < end <= duration for start, end in intervals))
+                self.assertTrue(all(left[1] <= right[0] for left, right in zip(intervals, intervals[1:])))
+                self.assertAlmostEqual(sum(end - start for start, end in intervals) / speed, target)
+
     def test_hybrid_preserves_full_length_when_keep_original_is_selected(self):
         intervals, speed = hybrid_intervals(30.0, 30.0, [])
         self.assertEqual(intervals, [(0.0, 30.0)])
@@ -188,6 +205,19 @@ class MediaValidationTests(unittest.TestCase):
 
 
 class RetryTests(unittest.TestCase):
+    def test_local_startup_still_recovers_interrupted_inspection_and_render(self):
+        asset = {"id": "local-asset", "validation_status": "validating"}
+        job = {"id": "local-job", "status": "processing", "lease_until": time.time() + 600}
+        store = Mock(shared=False)
+        store.list.side_effect = lambda kind: [asset] if kind == "assets" else [job]
+        engine = MediaEngine.__new__(MediaEngine)
+        engine.store = store
+        engine.recover()
+        self.assertEqual(asset["validation_status"], "uploaded")
+        self.assertEqual(job["status"], "failed")
+        self.assertEqual(store.put.call_count, 2)
+        store.update_job.assert_not_called()
+
     def test_retry_is_bounded_and_keeps_same_job(self):
         with tempfile.TemporaryDirectory() as directory:
             store = Store(Path(directory) / "test.sqlite3")

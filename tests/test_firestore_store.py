@@ -10,7 +10,7 @@ import types
 import unittest
 import os
 import hashlib
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from app.core import ButlerError
 
@@ -189,6 +189,45 @@ class FirestoreStoreTests(unittest.TestCase):
         with patch.dict(os.environ, {"K_SERVICE": "butler-api", "BUTLER_STORAGE": "sqlite"}):
             with self.assertRaisesRegex(ValueError, "requires BUTLER_STORAGE=firestore"):
                 ButlerApplication()
+
+    def test_claimed_render_has_the_same_ten_minute_lease_as_local_workers(self):
+        self.store.put("jobs", {"id": "queued-job", "session_id": "session-one", "status": "queued", "attempt_count": 0})
+        with patch("app.firestore_store.time.time", return_value=1000):
+            claimed = self.store.claim_job("queued-job", "session-one")
+        self.assertEqual(claimed["lease_until"], 1600)
+        self.assertEqual(claimed["attempt_count"], 1)
+
+    def test_shared_startup_preserves_another_instances_active_work(self):
+        from app.media import MediaEngine
+        self.store.put("assets", {"id": "inspecting", "session_id": "session-one", "validation_status": "validating"})
+        for identifier, lease in (("active", 1600), ("unknown", None)):
+            self.store.put("jobs", {"id": identifier, "session_id": "session-one", "status": "processing", "attempt_count": 1, "lease_until": lease})
+        engine = MediaEngine.__new__(MediaEngine)
+        engine.store = self.store
+        engine.dispatch = Mock()
+        with patch("app.media.time.time", return_value=1000):
+            engine.recover()
+        self.assertEqual(self.store.get("assets", "inspecting", "session-one")["validation_status"], "validating")
+        for identifier in ("active", "unknown"):
+            self.assertEqual(self.store.get("jobs", identifier, "session-one")["status"], "processing")
+        engine.dispatch.assert_not_called()
+
+    def test_shared_recovery_expires_only_the_attempt_it_observed(self):
+        from app.media import MediaEngine
+        expired = {"id": "expired", "session_id": "session-one", "status": "processing", "attempt_count": 1, "lease_until": 900}
+        stale = {**expired, "id": "retried"}
+        self.store.put("jobs", expired)
+        self.store.put("jobs", {**stale, "attempt_count": 2, "lease_until": 1600})
+        engine = MediaEngine.__new__(MediaEngine)
+        engine.store = self.store
+        engine.dispatch = Mock()
+        with patch.object(self.store, "list", return_value=[expired, stale]), patch("app.media.time.time", return_value=1000):
+            engine.recover()
+        self.assertEqual(self.store.get("jobs", "expired", "session-one")["status"], "failed")
+        retried = self.store.get("jobs", "retried", "session-one")
+        self.assertEqual(retried["status"], "processing")
+        self.assertEqual(retried["attempt_count"], 2)
+        engine.dispatch.assert_not_called()
 
 
 if __name__ == "__main__":

@@ -1,5 +1,21 @@
 # Butler Flow and Release Watch
 
+## Latest local audit — October 18, 2026
+
+Fresh clone `Butler-local-audit-20261018` started at remote `main` commit `d7cb9b8312fc9f26f6fe8527c2334ff30c34a93a`. Local fixes are on `codex/local-audit-20261018`. The older checkout and candidate were preserved. Entries below this section describe earlier checks and are historical.
+
+- Real FFmpeg/FFprobe 9.0.2 configured locally from a checksum-verified portable distribution. Full suite: **74 Python tests, zero skips, and 17 distinct JavaScript tests passed**.
+- Extra real-HTTP audit: **88 checks passed**, including actual upload/inspection, 720 × 1280 H.264 rendering with subtitles/title/audio, ZIP contents, signed downloads, session isolation, saved state after application restart, and retry after a missing executable is restored.
+- Additional actual-media matrix: **10/10 passed** for highlights, uniform speed-up, hybrid, near-full/full-length output, mute, generated background music, landscape/portrait framing, accented Unicode titles and manual subtitles. Outputs decoded fully and packaged MP4/caption bytes matched. Full suite also passed with optional Google client libraries installed in an isolated virtual environment; `pip check` passed.
+- Browser on `127.0.0.1:8782`: sample inspection, clip removal, cleared state after refresh, local Creator Pack edits, title application, plan approval and an actual eight-second Smart Shorten output observed. File-chooser and browser-download permissions were denied, then further observation was blocked; these UI steps remain unverified.
+- Fixed near-full Smart Shorten targets repeating the opening excerpt; added nonoverlap/duration regressions.
+- Fixed shared startup recovery failing another instance's active render. Unexpired leases remain intact, expired attempts use conditional updates, and Firestore's lease matches the local 600-second duration.
+- Shared inspections still have no ownership lease. A truly crashed cloud inspection may require a re-upload; no automatic shared inspection reset is claimed.
+- Python compilation, JS module syntax and `git diff --check` passed. Limited scan of 38 tracked text files found no supported credential patterns; this does not resolve historical key alerts.
+- No live Google provider, GCP deployment, billing/IAM or Firebase checks were performed. Full local evidence lives in the sibling `Deliverables/Butler_Local_Audit_20261018` directory.
+
+## Earlier release watch
+
 Last reviewed: 2026-10-18
 Candidate checkout: `Butler-final-ui`, branch `codex/creator-studio-ui`
 Candidate code: `7ddf1cb4` on top of `origin/main` at `2a14ec08`.

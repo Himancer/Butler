@@ -57,7 +57,7 @@ The paths above are placeholders, not an installed location. Restart Butler afte
 
 Limits: one active render per session via the UI, five total upload reservations per session, 50 MiB per MP4, 60 seconds, maximum 3840 x 2160 in either orientation. Files need a real MP4 container, a supported video stream, finite duration, and bounded dimensions. Rejected media is removed. There is no fake playable result when tools are absent.
 
-Output: 720 x 1280, 30 fps, H.264/AAC, letterbox or center crop, optional wrapped title and subtitles. FFmpeg receives argument arrays with restricted protocols; model text never becomes shell commands or filter expressions. Worker calls have time limits and a four-slot queue with two workers. A render worker holds a 240-second lease; expired processing leases and ten-minute dispatch delays become honest failed states.
+Output: 720 x 1280, 30 fps, H.264/AAC, letterbox or center crop, optional wrapped title and subtitles. FFmpeg receives argument arrays with restricted protocols; model text never becomes shell commands or filter expressions. Worker calls have time limits and a four-slot queue with two workers. A render worker holds a 600-second lease; expired processing leases and ten-minute dispatch delays become honest failed states.
 
 ## Enable Google Services
 
@@ -92,7 +92,7 @@ Leave the transcript blank for automatic transcription; entered text overrides i
 
 Provider failures are surfaced; the app never silently presents deterministic fixtures as live AI. At most one generation call per turn and one transient retry are used, below the BRD's four-call ceiling. Google calls incur your project's charges.
 
-Environment variables are listed in `.env.example`. The file is documentation only: **the runner does not automatically load `.env` files**. Set variables in the terminal that starts the server.
+Environment variables are listed in `.env.example`. The runner loads simple `KEY=value` entries from a project-root `.env`; variables already set in the shell take precedence. The parser does not expand variables or remove surrounding quotes. Keep credentials outside source control. `.env.example` itself is documentation and is not loaded.
 
 ## Access And Storage
 
@@ -165,7 +165,7 @@ The container is configured to call Gemini on Vertex AI using the Cloud Run serv
 python run.py --test
 ```
 
-This is also `npm test`. It runs Python unit/real-HTTP integration tests, JavaScript syntax checks, and eight Node UI helper tests. Tests isolate SQLite/media in temporary directories and do not need cloud credentials. Model/media-boundary unit tests use explicit stand-ins; they are not evidence of a real video render.
+This is also `npm test`. It runs Python unit/real-HTTP integration tests, JavaScript syntax checks, and Node UI helper/controller tests. The UI test entry point imports the controller regression tests. Tests isolate SQLite/media in temporary directories and do not need cloud credentials. Model/media-boundary unit tests use explicit stand-ins; they are not evidence of a real video render.
 
 The real FFmpeg integration test generates a synthetic clip, trims/renders it with title/subtitles, verifies an edited caption in the ZIP, and checks duplicate execution. It **skips explicitly** until FFmpeg, FFprobe, and a font are configured. Run it before claiming video rendering readiness.
 

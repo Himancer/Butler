@@ -268,7 +268,7 @@ function renderCreate() {
   const active = state.job && ["queued", "processing"].includes(state.job.status);
   element("asset-status").textContent = asset ? ({ valid: "Inspected", needs_tools: "Tools required", invalid: "Rejected", validating: "Inspecting", uploaded: "Uploaded", reserved: "Waiting" }[asset.validation_status] || asset.validation_status) : "No clip selected";
   element("upload-title").textContent = asset ? asset.original_filename : "Start with your footage.";
-  element("upload-detail").textContent = asset?.duration_seconds ? `${durationLabel(asset.duration_seconds)} \u00b7 ${asset.width} \u00d7 ${asset.height}` : "MP4 \u00b7 up to 50 MB \u00b7 60 seconds";
+  element("upload-detail").textContent = asset?.duration_seconds ? `${durationLabel(asset.duration_seconds)} \u00b7 ${asset.width} \u00d7 ${asset.height}` : `MP4 \u00b7 up to ${Math.floor(state.capabilities.max_upload_bytes / 1000000)} MB \u00b7 60 seconds`;
   element("choose-file").disabled = Boolean(active || state.uploading);
   if (element("use-sample-clip")) element("use-sample-clip").disabled = Boolean(active || state.uploading);
   element("asset-error").hidden = !asset?.error_message;
@@ -316,7 +316,8 @@ function uploadBytes(url, file) {
 async function uploadFile(file) {
   if (!file || state.uploading) return;
   if (!element("media-consent").checked) { toast("Confirm that you own the clip or have permission to use it."); return; }
-  if (!file.name.toLowerCase().endsWith(".mp4") || !file.size || file.size > 50 * 1024 * 1024) { toast("Choose one MP4 file of at most 50 MB."); return; }
+  const maxUploadBytes = state.capabilities?.max_upload_bytes || 50 * 1024 * 1024;
+  if (!file.name.toLowerCase().endsWith(".mp4") || !file.size || file.size > maxUploadBytes) { toast(`Choose one MP4 file of at most ${Math.floor(maxUploadBytes / 1000000)} MB.`); return; }
   state.uploading = true;
   element("upload-progress").value = 0;
   element("upload-progress").hidden = false;
@@ -526,9 +527,10 @@ function renderStatus() {
     ["FFprobe", capabilities.media.ffprobe ? "Configured" : "Not installed"],
     ["Font", capabilities.media.font ? "Available" : "Not configured"],
     ["Transcription", capabilities.transcription === "google" ? "Google Speech" : "Manual"],
-    ["Storage", capabilities.storage], ["Retention", "24-hour sessions; periodic cleanup"],
-    ["Access", "Loopback only"], ["Currency", state.session.preferences.currency]
+    ["App records", capabilities.storage], ["Video storage", capabilities.media_storage], ["Retention", "24-hour sessions; periodic cleanup"],
+    ["Access", capabilities.access_mode], ["Currency", state.session.preferences.currency]
   ]);
+  element("access-mode").textContent = capabilities.access_mode;
 }
 
 async function refreshWorkspace(initial = false) {
@@ -567,6 +569,7 @@ async function refreshWorkspace(initial = false) {
     renderCaption();
   }
   element("provider-badge").innerHTML = `<span class="connection-dot"></span><span>${escapeHtml(state.capabilities.assistant)}</span>`;
+  element("session-mode").textContent = state.capabilities.access_mode;
   element("chat-mode").textContent = state.capabilities.assistant;
   element("chat-footnote").textContent = `${state.capabilities.assistant} \u00b7 private session`;
   element("saved-count").textContent = state.session.saved_product_ids.length;

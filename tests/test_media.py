@@ -9,6 +9,55 @@ from app.core import ButlerError, Store, new_id, validate_plan
 from app.media import MediaEngine, MediaTools, hybrid_intervals, manual_subtitles, subtitle_clock, write_srt
 
 
+class MemoryMediaObjects:
+    mode = "Google Cloud Storage"
+
+    def __init__(self):
+        self.objects = {}
+
+    def upload(self, key, source):
+        self.objects[key] = source.read_bytes()
+
+    def download(self, key, destination):
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(self.objects[key])
+
+    def delete_prefix(self, prefix):
+        for key in list(self.objects):
+            if key.startswith(prefix.rstrip("/") + "/"):
+                del self.objects[key]
+
+
+class MediaObjectStoreTests(unittest.TestCase):
+    def test_assets_and_artifacts_can_be_restored_from_object_storage(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            store = Store(root / "test.sqlite3")
+            objects = MemoryMediaObjects()
+            engine = MediaEngine(store, root / "media", MediaTools(), objects=objects)
+            try:
+                asset = {"id": "asset-one", "session_id": "session-one"}
+                source = engine.asset_path(asset)
+                source.parent.mkdir(parents=True)
+                source.write_bytes(b"source video")
+                engine.persist_asset(asset, source)
+                source.unlink()
+                self.assertEqual(engine.materialize_asset(asset).read_bytes(), b"source video")
+
+                job = {"id": "job-one", "session_id": "session-one", "attempt_count": 1}
+                artifact = engine.attempt_path(job) / "output.mp4"
+                artifact.parent.mkdir(parents=True)
+                artifact.write_bytes(b"rendered video")
+                objects.upload(engine.artifact_key(job, "output.mp4"), artifact)
+                artifact.unlink()
+                self.assertEqual(engine.materialize_artifact(job, "output.mp4").read_bytes(), b"rendered video")
+
+                engine.delete_session("session-one")
+                self.assertEqual(objects.objects, {})
+            finally:
+                engine.shutdown()
+
+
 class SubtitleTests(unittest.TestCase):
     def test_manual_timing_is_output_relative(self):
         segments = manual_subtitles("First line\nSecond line", 20)

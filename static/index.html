@@ -6,9 +6,9 @@
   <meta name="theme-color" content="#eef5f1">
   <title>Butler | Your Creative Workspace</title>
   <link rel="icon" href="data:,">
-  <link rel="stylesheet" href="/static/assets/icons.css">
-  <link rel="stylesheet" href="/static/styles.css">
-  <script type="module" src="/static/app.js"></script>
+  <link rel="stylesheet" href="/assets/icons.css">
+  <link rel="stylesheet" href="/styles.css">
+  <script type="module" src="/app.js"></script>
 </head>
 <body>
   <a class="skip-link" href="#main">Skip to workspace</a>
@@ -24,7 +24,7 @@
     </nav>
     <div class="sidebar-bottom">
       <button class="status-link" id="workspace-status"><span class="icon icon-settings" aria-hidden="true"></span><span>Workspace status</span></button>
-      <div class="profile"><span class="avatar">C</span><div><strong>Creator</strong><small>Local session</small></div><span class="connection-dot" aria-label="Connected"></span></div>
+      <div class="profile"><span class="avatar">C</span><div><strong>Creator</strong><small id="session-mode">Session</small></div><span class="connection-dot" aria-label="Connected"></span></div>
     </div>
   </aside>
   <main id="main" class="main-shell">
@@ -93,7 +93,7 @@
   <nav class="mobile-nav" aria-label="Mobile workspace navigation"><button data-page="discover" class="active" aria-current="page"><span class="icon icon-search" aria-hidden="true"></span><span>Discover</span></button><button data-page="create"><span class="icon icon-create" aria-hidden="true"></span><span>Create</span></button><button data-page="saved"><span class="icon icon-bookmark" aria-hidden="true"></span><span>Saved</span></button><button data-page="activity"><span class="icon icon-history" aria-hidden="true"></span><span>Activity</span></button></nav>
   <dialog id="compare-dialog" class="wide-dialog" aria-labelledby="compare-title"><div class="dialog-heading"><div><div class="eyebrow">SIDE BY SIDE</div><h2 id="compare-title">A clearer choice.</h2></div><button class="icon-button" data-close-dialog title="Close comparison" aria-label="Close comparison"><span class="icon icon-close" aria-hidden="true"></span></button></div><div id="comparison-content"></div><div class="dialog-footer"><span class="muted">Sample prices &middot; availability unknown</span><button class="button button-dark" id="use-selection"><span class="icon icon-create" aria-hidden="true"></span>Use selection in studio</button></div></dialog>
   <dialog id="plan-dialog" aria-labelledby="plan-title"><div class="dialog-heading"><div><div class="eyebrow">YOUR APPROVAL</div><h2 id="plan-title">Ready to make the cut?</h2></div><button class="icon-button" data-close-dialog title="Close edit plan" aria-label="Close edit plan"><span class="icon icon-close" aria-hidden="true"></span></button></div><div id="plan-summary"></div><div class="dialog-footer"><button class="button button-white" data-close-dialog>Back to edit</button><button class="button button-dark" id="approve-plan"><span class="icon icon-shield" aria-hidden="true"></span>Approve &amp; render</button></div></dialog>
-  <dialog id="status-dialog" aria-labelledby="status-title"><div class="dialog-heading"><h2 id="status-title">Workspace status</h2><button class="icon-button" data-close-dialog title="Close status" aria-label="Close status"><span class="icon icon-close" aria-hidden="true"></span></button></div><div id="status-content"></div><div class="dialog-footer"><span class="muted">Private loopback access</span><button class="button button-white" id="status-refresh"><span class="icon icon-refresh" aria-hidden="true"></span>Refresh</button></div></dialog>
+  <dialog id="status-dialog" aria-labelledby="status-title"><div class="dialog-heading"><h2 id="status-title">Workspace status</h2><button class="icon-button" data-close-dialog title="Close status" aria-label="Close status"><span class="icon icon-close" aria-hidden="true"></span></button></div><div id="status-content"></div><div class="dialog-footer"><span class="muted" id="access-mode">Local access</span><button class="button button-white" id="status-refresh"><span class="icon icon-refresh" aria-hidden="true"></span>Refresh</button></div></dialog>
   <dialog id="access-dialog" aria-labelledby="access-title"><div class="dialog-heading"><h2 id="access-title">Your workspace awaits.</h2></div><form id="access-form"><label class="field-label">Demo access code<input id="access-code" type="password" autocomplete="current-password" maxlength="256" required></label><p id="access-error" class="inline-error" role="alert" hidden></p><button type="submit" class="button button-dark full-width">Enter workspace<span class="icon icon-arrow-right" aria-hidden="true"></span></button></form></dialog>
   <div class="toast-region" id="toast-region" role="status" aria-live="polite"></div>
 </body>

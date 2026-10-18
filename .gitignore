@@ -13,3 +13,5 @@ media/
 test-results/
 playwright-report/
 *.log
+/tools/google-cloud-sdk/
+

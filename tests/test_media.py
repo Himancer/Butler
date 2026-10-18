@@ -6,7 +6,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from app.core import ButlerError, Store, new_id, validate_plan
-from app.media import MediaEngine, MediaTools, manual_subtitles, subtitle_clock, write_srt
+from app.media import MediaEngine, MediaTools, hybrid_intervals, manual_subtitles, subtitle_clock, write_srt
 
 
 class SubtitleTests(unittest.TestCase):
@@ -31,6 +31,22 @@ class SubtitleTests(unittest.TestCase):
 
     def test_clock_rolls_over_correctly(self):
         self.assertEqual(subtitle_clock(59.9996), "00:01:00,000")
+
+
+class SmartShortenTests(unittest.TestCase):
+    def test_hybrid_preserves_full_length_when_keep_original_is_selected(self):
+        intervals, speed = hybrid_intervals(30.0, 30.0, [])
+        self.assertEqual(intervals, [(0.0, 30.0)])
+        self.assertAlmostEqual(sum(end - start for start, end in intervals) / speed, 30.0)
+
+    def test_hybrid_excerpts_and_speed_match_requested_length(self):
+        for target in (24.0, 12.0, 5.0):
+            with self.subTest(target=target):
+                intervals, speed = hybrid_intervals(30.0, target, [4.0, 10.0, 17.0, 24.0])
+                self.assertTrue(all(0 <= start < end <= 30.0 for start, end in intervals))
+                self.assertAlmostEqual(sum(end - start for start, end in intervals) / speed, target)
+                ordered = sorted(intervals)
+                self.assertTrue(all(left[1] <= right[0] for left, right in zip(ordered, ordered[1:])))
 
 
 class MediaValidationTests(unittest.TestCase):

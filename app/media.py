@@ -223,6 +223,24 @@ def highlight_intervals(duration: float, target: float, scene_times: list[float]
     return [(start, start + piece) for start in sorted(chosen)]
 
 
+def hybrid_intervals(
+    duration: float,
+    target: float,
+    scene_times: list[float],
+    speech: list[dict[str, Any]] | None = None,
+    moments: list[float] | None = None,
+    focus: str = "balanced",
+) -> tuple[list[tuple[float, float]], float]:
+    """Select excerpts and playback speed that produce the requested output length."""
+    speed = min(1.25, duration / target)
+    selected_duration = target * speed
+    selected = highlight_intervals(duration, selected_duration, scene_times, speech, moments, focus)
+    if len(selected) == 1 and selected[0][0] == 0 and selected[0][1] >= duration - 1 / 30:
+        return selected, speed
+    piece = selected_duration / 4
+    return [(start, start + piece) for start, _ in selected], speed
+
+
 def make_music(path: Path, duration: float) -> None:
     """Create a gentle, low-volume instrumental bed without requiring external media."""
     sample_rate = 22050
@@ -370,8 +388,7 @@ class MediaEngine:
                 if strategy == "smart_highlights":
                     intervals = highlight_intervals(source_duration, target, scene_times, audio_activity or speech_segments, visual_moments, plan.get("shorten_focus", "balanced"))
                 elif strategy == "hybrid":
-                    piece = target * speed / 4
-                    intervals = [(start, start + piece) for start, _ in highlight_intervals(source_duration, target * speed, scene_times, audio_activity or speech_segments, visual_moments, plan.get("shorten_focus", "balanced"))]
+                    intervals, speed = hybrid_intervals(source_duration, target, scene_times, audio_activity or speech_segments, visual_moments, plan.get("shorten_focus", "balanced"))
                 if plan["subtitles_enabled"] and not plan["transcript"] and speech_segments:
                     (directory / "subtitles.srt").write_text(write_srt(map_speech_to_output(speech_segments, intervals, speed), target), encoding="utf-8")
                 if strategy == "uniform_speed":
@@ -478,3 +495,4 @@ class MediaEngine:
 
     def shutdown(self) -> None:
         self.executor.shutdown(wait=True, cancel_futures=True)
+

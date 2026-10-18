@@ -73,3 +73,13 @@ Do not describe a blocker as complete until the corresponding live check has evi
 The Vertex API enablement was confirmed by the deployment owner's screenshot. Runtime role and target configuration are not independently confirmed. Added allowlisted Google ErrorInfo reason handling for API-disabled, billing-disabled, IAM, scope, consumer-project and security-policy denials. Raw provider prose, metadata, tokens and user input are never included in diagnostics. Unknown reasons retain the generic message. This is a diagnostic repair, not evidence that cloud Gemini works.
 
 Verification: 64 Python tests run, 63 passed, 1 real-render test skipped; 9 JavaScript tests passed; JavaScript syntax and git diff whitespace checks passed. Deployment and another real Gemini request are still required.
+
+## October 18: clip replacement and stale-state release audit
+
+- Added Remove video and context-sensitive Choose another video. Removal clears the current draft and persists that choice across refresh in the same browser tab/session; original records remain in Activity. Running server work is not cancelled.
+- Bound restored renders to their source clip/plan. Activity opens the correct clip, plan and caption. New edits invalidate the old selected output and approval. Explicit Use this title replaces automatic title application.
+- Guarded late inspection, render, Creator Pack, approval and refresh responses against changed studio selection. Clear file input before selection/rejection to permit retrying the same file. Sample loading prevents duplicate clicks and uses a Firebase-compatible asset URL.
+- Creator Packs now carry an owned asset_id. Render/export selects that asset's caption only, excluding unrelated and legacy unbound captions. Fixed export working-directory creation after instance restart. Direct MP4 download no longer requires generating/saving captions.
+- Full checks: 68 Python tests run (67 passed, 1 real FFmpeg test skipped because tools are not configured); 17 JavaScript tests passed; JS syntax and git diff whitespace checks passed. Added runtime regression coverage for remove, stale async responses and invalidated renders.
+- Browser evidence on isolated local port 8771: load sample, visible Choose another video / Remove video, remove, reload remains empty, reload sample works. Local media tools were absent, so this check is not evidence for rendering or Google AI. Screenshot: Deliverables/Butler_Final_Submission/video-controls-local-check.png in parent workspace.
+- Cloud deployment of this release and live acceptance remain required. Google AI access-denied blocker is separate.

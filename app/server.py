@@ -180,6 +180,11 @@ class ButlerApplication:
             return response
 
     def create_caption(self, session: dict[str, Any], values: dict[str, Any]) -> dict[str, Any]:
+        asset_id = values.get("asset_id")
+        if asset_id is not None:
+            if not isinstance(asset_id, str) or not re.fullmatch(r"[a-f0-9]{32}", asset_id):
+                raise ButlerError("INVALID_ASSET", "Choose a valid uploaded clip for this caption.")
+            self.store.get("assets", asset_id, session["id"])
         product_ids = values.get("product_ids", [])
         if not isinstance(product_ids, list):
             raise ButlerError("INVALID_COMPARISON", "Product IDs must be a list.")
@@ -190,7 +195,7 @@ class ButlerApplication:
         context = bounded_text(values.get("user_context", ""), "Context", 1000)
         transcript = bounded_text(values.get("transcript", ""), "Transcript", 6000)
         generated = self.vertex.caption(products, context, tone, transcript) if self.provider_mode == "vertex" else local_caption(products, context, tone)
-        record = {"id": new_id(), "session_id": session["id"], "selected_product_ids": product_ids, "tone": tone, "user_context": context, **generated, "created_at": time.time(), "updated_at": time.time(), "provider": self.capabilities()["assistant"]}
+        record = {"id": new_id(), "session_id": session["id"], "asset_id": asset_id, "selected_product_ids": product_ids, "tone": tone, "user_context": context, **generated, "created_at": time.time(), "updated_at": time.time(), "provider": self.capabilities()["assistant"]}
         return self.store.put("captions", record)
 
     def new_asset(self, session: dict[str, Any], values: dict[str, Any]) -> dict[str, Any]:
@@ -562,7 +567,7 @@ class ButlerHandler(BaseHTTPRequestHandler):
     def static_file(self, path: str) -> None:
         if path == "/":
             file = PROJECT_ROOT / "static" / "index.html"
-        elif path in ("/app.js", "/art.mjs", "/ui.mjs", "/styles.css") or path.startswith("/assets/"):
+        elif path in ("/app.js", "/art.mjs", "/ui.mjs", "/studio.mjs", "/styles.css") or path.startswith("/assets/"):
             root = (PROJECT_ROOT / "static").resolve()
             file = (root / path.lstrip("/")).resolve()
             if not file.is_relative_to(root):

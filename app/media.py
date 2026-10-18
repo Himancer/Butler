@@ -493,7 +493,7 @@ class MediaEngine:
             required = ["output.mp4"] + (["subtitles.srt"] if plan["subtitles_enabled"] else [])
             if not all((directory / filename).is_file() and (directory / filename).stat().st_size for filename in required):
                 raise ButlerError("OUTPUT_INVALID", "The render did not produce all required artifacts.")
-            (directory / "caption.txt").write_text(self.caption_text(session_id), encoding="utf-8")
+            (directory / "caption.txt").write_text(self.caption_text(session_id, plan["asset_id"]), encoding="utf-8")
             output_keys = [*required, "caption.txt"]
             artifact_objects = {}
             for filename in output_keys:
@@ -511,8 +511,10 @@ class MediaEngine:
             self.store.update_job(job_id, session_id, attempt, {"status": "failed", "phase": "failed", "lease_until": None, "error_code": "WORKER_FAILED", "error_message": "The worker stopped unexpectedly. No partial output has been published."})
             shutil.rmtree(directory, ignore_errors=True)
 
-    def caption_text(self, session_id: str) -> str:
-        captions = self.store.list("captions", session_id)
+    def caption_text(self, session_id: str, asset_id: str) -> str:
+        # Standalone shopping captions remain downloadable, but are never
+        # silently attached to an unrelated video export.
+        captions = [caption for caption in self.store.list("captions", session_id) if caption.get("asset_id") == asset_id]
         if not captions:
             return ""
         caption = captions[-1]
@@ -522,8 +524,10 @@ class MediaEngine:
         if job["status"] != "succeeded":
             raise ButlerError("JOB_NOT_FINISHED", "Downloads are available only after a verified render.", 409)
         directory = self.attempt_path(job)
+        plan = self.store.get("plans", job["plan_id"], job["session_id"])
         with self.export_lock:
-            (directory / "caption.txt").write_text(self.caption_text(job["session_id"]), encoding="utf-8")
+            directory.mkdir(parents=True, exist_ok=True)
+            (directory / "caption.txt").write_text(self.caption_text(job["session_id"], plan["asset_id"]), encoding="utf-8")
             filenames = job["output_keys"]
             for filename in filenames:
                 self.materialize_artifact(job, filename)

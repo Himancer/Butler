@@ -33,6 +33,10 @@ class APITests(unittest.TestCase):
         cls.directory.cleanup()
 
     def setUp(self):
+        # Each test is an independent client scenario; requests from earlier
+        # tests must not exhaust the shared server's login rate window.
+        with self.app.rate_lock:
+            self.app.rates.clear()
         status, data, headers = self.request("POST", "/api/v1/sessions", {})
         self.assertEqual(status, 201)
         self.cookie = headers["Set-Cookie"].split(";", 1)[0]
@@ -109,6 +113,33 @@ class APITests(unittest.TestCase):
     def test_caption_product_ids_must_be_a_list(self):
         status, _, _ = self.own("POST", "/api/v1/captions", {"product_ids": "", "user_context": "cooking"})
         self.assertEqual(status, 422)
+
+    def test_caption_can_be_bound_only_to_an_owned_asset(self):
+        asset_id = uuid.uuid4().hex
+        self.app.store.put("assets", {"id": asset_id, "session_id": self.session_id})
+        status, caption, _ = self.own("POST", "/api/v1/captions", {"asset_id": asset_id, "user_context": "My uploaded craft clip"})
+        self.assertEqual(status, 201)
+        self.assertEqual(caption["asset_id"], asset_id)
+        _, other, headers = self.request("POST", "/api/v1/sessions", {})
+        status, _, _ = self.request("POST", "/api/v1/captions", {"asset_id": asset_id, "user_context": "Someone else's clip"}, cookie=headers["Set-Cookie"].split(";", 1)[0], csrf=other["session"]["csrf_token"])
+        self.assertEqual(status, 404)
+        status, _, _ = self.own("POST", "/api/v1/captions", {"asset_id": uuid.uuid4().hex, "user_context": "Missing clip"})
+        self.assertEqual(status, 404)
+
+    def test_invalid_caption_asset_id_is_rejected_without_generation(self):
+        for asset_id in ("", [], 123, "../../other"):
+            with self.subTest(asset_id=asset_id):
+                status, result, _ = self.own("POST", "/api/v1/captions", {"asset_id": asset_id, "user_context": "Craft"})
+                self.assertEqual(status, 422)
+                self.assertEqual(result["error"]["code"], "INVALID_ASSET")
+
+    def test_standalone_caption_remains_available_without_asset(self):
+        status, caption, _ = self.own("POST", "/api/v1/captions", {"user_context": "A shopping post"})
+        self.assertEqual(status, 201)
+        self.assertIsNone(caption["asset_id"])
+        status, contents, _ = self.own("GET", f"/api/v1/captions/{caption['id']}/download")
+        self.assertEqual(status, 200)
+        self.assertIn(caption["text"].encode(), contents)
 
     def test_creator_pack_accepts_transcript_and_returns_editable_fields(self):
         transcript = "I made a tiny lamp from colored paper."

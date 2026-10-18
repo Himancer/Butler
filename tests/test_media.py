@@ -29,6 +29,37 @@ class MemoryMediaObjects:
 
 
 class MediaObjectStoreTests(unittest.TestCase):
+    def test_package_uses_only_caption_for_rendered_asset_after_cold_start(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            store = Store(root / "test.sqlite3")
+            objects = MemoryMediaObjects()
+            engine = MediaEngine(store, root / "media", MediaTools(), objects=objects)
+            try:
+                session_id = "session-one"
+                plan = {"id": "plan-one", "session_id": session_id, "asset_id": "clip-one"}
+                store.put("plans", plan)
+                job = {"id": "job-one", "plan_id": plan["id"], "session_id": session_id, "attempt_count": 1, "status": "succeeded", "output_keys": ["output.mp4", "caption.txt"]}
+                objects.objects[engine.artifact_key(job, "output.mp4")] = b"rendered clip one"
+                objects.objects[engine.artifact_key(job, "caption.txt")] = b"obsolete stored caption"
+                caption = {"id": "caption-one", "session_id": session_id, "asset_id": "clip-one", "text": "Clip one caption", "hashtags": ["#One"]}
+                store.put("captions", caption)
+                store.put("captions", {"id": "caption-two", "session_id": session_id, "asset_id": "clip-two", "text": "Wrong clip caption", "hashtags": []})
+                store.put("captions", {"id": "standalone", "session_id": session_id, "text": "Shopping caption", "hashtags": []})
+                self.assertFalse(engine.attempt_path(job).exists())
+                engine.package(job)
+                with zipfile.ZipFile(engine.attempt_path(job) / "post-package.zip") as archive:
+                    self.assertEqual(archive.read("caption.txt").replace(b"\r\n", b"\n"), b"Clip one caption\n\n#One\n")
+                    self.assertEqual(archive.read("output.mp4"), b"rendered clip one")
+                caption["text"] = "Edited clip one"
+                store.put("captions", caption)
+                engine.package(job)
+                with zipfile.ZipFile(engine.attempt_path(job) / "post-package.zip") as archive:
+                    self.assertEqual(archive.read("caption.txt").replace(b"\r\n", b"\n"), b"Edited clip one\n\n#One\n")
+                self.assertEqual(engine.caption_text(session_id, "clip-without-caption"), "")
+            finally:
+                engine.shutdown()
+
     def test_assets_and_artifacts_can_be_restored_from_object_storage(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -204,7 +235,7 @@ class RealRenderTests(unittest.TestCase):
                 values = {"trim_start_seconds": 0.2, "trim_end_seconds": 1.2, "fit_mode": "letterbox", "title_text": "A" * 80, "subtitles_enabled": True, "transcript": "Hello world\nA short test"}
                 plan = {**validate_plan(asset, values), "id": new_id(), "session_id": session["id"], "version": 1, "status": "proposed", "created_at": time.time()}
                 store.put("plans", plan)
-                caption = {"id": new_id(), "session_id": session["id"], "text": "Original caption", "hashtags": ["#Test"]}
+                caption = {"id": new_id(), "session_id": session["id"], "asset_id": asset["id"], "text": "Original caption", "hashtags": ["#Test"]}
                 store.put("captions", caption)
                 job, _ = store.approve(session["id"], plan["id"], 1, new_id())
                 engine.process(job["id"], session["id"])

@@ -1,4 +1,5 @@
 import { marketplaceLinks, similarProductQuery, budgetMinor, comparisonRows, durationLabel, escapeHtml, formatMoney, mediaSetupMessage, parseHashtags, previewWindow, selectedIds, shortTime } from "./ui.mjs";
+import { defaultEdit, jobMatchesAsset, studioSelection } from "./studio.mjs";
 import { productArt } from "./art.mjs";
 
 const element = identifier => document.getElementById(identifier);
@@ -7,7 +8,7 @@ const state = {
   page: "discover", session: null, capabilities: null, products: [], allProducts: [], videoWorkflow: null,
   messages: [], assets: [], plans: [], jobs: [], captions: [], asset: null, plan: null,
   job: null, caption: null, busyChat: false, uploading: false, localPreview: null,
-  approvalKey: null, pendingMessage: null, polling: null,
+  approvalKey: null, pendingMessage: null, polling: null, studioVersion: 0, editVersion: 0, captionRequest: 0, loadingSample: false,
   edit: { trim_start_seconds: 0, trim_end_seconds: 20, fit_mode: "letterbox", title_text: "", subtitles_enabled: false, transcript: "", shorten_duration_seconds: 12, shorten_target_seconds: 12, shorten_strategy: "smart_highlights", shorten_audio: "preserve", shorten_focus: "balanced" }
 };
 let toastTimer;
@@ -194,6 +195,8 @@ async function sendChat(message) {
 }
 
 function collectEdit() {
+  state.editVersion += 1;
+  state.job = null;
   const shortenTarget = Number(element("shorten-duration-range").value);
   state.edit = {
     trim_start_seconds: Number(element("trim-start").value), trim_end_seconds: Number(element("trim-end").value),
@@ -211,6 +214,7 @@ function collectEdit() {
   renderShortenSummary();
   state.plan = null;
   state.approvalKey = null;
+  renderJob();
   renderPreview();
 }
 
@@ -253,8 +257,39 @@ function updateShortenControls() {
     : "Choose any target from 0.1 to 60 seconds, or upload a clip to use its full length.";
 }
 
+function rememberStudioSelection() {
+  try { sessionStorage.setItem(`butler-studio-${state.session.id}`, JSON.stringify({ assetId: state.asset?.id || null })); } catch { /* Storage can be disabled by the browser. */ }
+}
+
+function selectStudio(assetId, jobId = null, restore = true) {
+  state.studioVersion += 1;
+  state.editVersion += 1;
+  state.captionRequest += 1;
+  clearTimeout(state.polling);
+  element("video-preview").pause();
+  if (state.localPreview) URL.revokeObjectURL(state.localPreview);
+  state.localPreview = null;
+  const selection = studioSelection(state.assets, state.plans, state.jobs, assetId, jobId);
+  Object.assign(state, selection);
+  if (!restore) { state.plan = null; state.job = null; state.videoWorkflow = null; state.edit = defaultEdit(state.asset); }
+  state.approvalKey = null;
+  state.caption = state.asset ? [...state.captions].reverse().find(caption => caption.asset_id === state.asset.id) || null : null;
+  element("video-file").value = "";
+  element("generate-caption").disabled = false;
+  if (element("plan-dialog").open) element("plan-dialog").close();
+  rememberStudioSelection();
+  renderCaption();
+  renderCreate();
+  if (state.asset?.validation_status === "validating" || ["queued", "processing"].includes(state.job?.status)) startPolling();
+}
+
+function canChangeClip() {
+  if (state.uploading || state.loadingSample) { toast("Please wait for the current upload to finish."); return false; }
+  return true;
+}
+
 function renderPreview() {
-  const finished = state.job?.status === "succeeded";
+  const finished = state.job?.status === "succeeded" && jobMatchesAsset(state.job, state.asset, state.plans);
   const source = finished ? `/api/v1/jobs/${state.job.id}/preview` : state.localPreview || (state.asset?.validation_status === "valid" ? `/api/v1/assets/${state.asset.id}/preview` : "");
   const video = element("video-preview");
   if (source && video.getAttribute("src") !== source) {
@@ -276,7 +311,7 @@ function renderPreview() {
 
 function renderPreviewTimeline() {
   const video = element("video-preview");
-  const finished = state.job?.status === "succeeded";
+  const finished = state.job?.status === "succeeded" && jobMatchesAsset(state.job, state.asset, state.plans);
   const assetReady = state.asset?.validation_status === "valid";
   const duration = finished && Number.isFinite(video.duration) ? video.duration : Number(state.asset?.duration_seconds);
   const available = assetReady && Number.isFinite(duration) && duration > 0;
@@ -305,7 +340,7 @@ function renderPreviewTimeline() {
 function seekPreview(time) {
   const video = element("video-preview");
   if (video.readyState < 1) return;
-  const finished = state.job?.status === "succeeded";
+  const finished = state.job?.status === "succeeded" && jobMatchesAsset(state.job, state.asset, state.plans);
   const duration = finished && Number.isFinite(video.duration) ? video.duration : Number(state.asset?.duration_seconds);
   const window = finished ? { start: 0, end: duration } : previewWindow(state.videoWorkflow, state.edit.trim_start_seconds, state.edit.trim_end_seconds, duration);
   video.currentTime = Math.max(window.start, Math.min(window.end, Number(time)));
@@ -332,7 +367,7 @@ function renderCreate() {
   element("summarize-controls").hidden = !ready || !summarizeMode;
   element("trim-controls").hidden = !ready || !trimMode;
   element("advanced-edit-options").hidden = !ready || !state.videoWorkflow;
-  element("caption-workspace").hidden = !ready || !state.videoWorkflow;
+  element("caption-workspace").hidden = !(ready && (state.videoWorkflow || state.caption)) && !(!asset && state.caption && !state.caption.asset_id);
   element("review-plan").hidden = !ready || !state.videoWorkflow;
   state.edit.shorten_duration_seconds = summarizeMode ? Number(state.edit.shorten_target_seconds || 12) : 0;
   element("shorten-strategy").value = state.edit.shorten_strategy || "smart_highlights";
@@ -343,8 +378,11 @@ function renderCreate() {
   element("asset-status").textContent = asset ? ({ valid: "Inspected", needs_tools: "Tools required", invalid: "Rejected", validating: "Inspecting", uploaded: "Uploaded", reserved: "Waiting" }[asset.validation_status] || asset.validation_status) : "No clip selected";
   element("upload-title").textContent = asset ? asset.original_filename : "Start with your footage.";
   element("upload-detail").textContent = asset?.duration_seconds ? `${durationLabel(asset.duration_seconds)} \u00b7 ${asset.width} \u00d7 ${asset.height}` : `MP4 \u00b7 up to ${Math.floor(state.capabilities.max_upload_bytes / 1000000)} MB \u00b7 60 seconds`;
-  element("choose-file").disabled = Boolean(active || state.uploading);
-  if (element("use-sample-clip")) element("use-sample-clip").disabled = Boolean(active || state.uploading);
+  element("choose-file").disabled = Boolean(state.uploading || state.loadingSample);
+  if (element("use-sample-clip")) element("use-sample-clip").disabled = Boolean(state.uploading || state.loadingSample);
+  element("choose-file-label").textContent = asset ? "Choose another video" : "Choose video";
+  element("remove-video").hidden = !asset;
+  element("remove-video").disabled = Boolean(state.uploading || state.loadingSample);
   element("asset-error").hidden = !asset?.error_message;
   element("asset-error").textContent = asset?.error_message || "";
   element("retry-inspection").hidden = !asset || !["needs_tools", "uploaded"].includes(asset.validation_status);
@@ -398,7 +436,9 @@ async function uploadFile(file) {
   element("choose-file").disabled = true;
   try {
     const reservation = await api("/assets/upload-url", { method: "POST", body: { filename: file.name, size_bytes: file.size, content_type: "video/mp4", consent: true } });
-    state.asset = await uploadBytes(reservation.upload_url, file);
+    const uploaded = await uploadBytes(reservation.upload_url, file);
+    state.assets.push(uploaded);
+    selectStudio(uploaded.id, null, false);
     if (state.localPreview) URL.revokeObjectURL(state.localPreview);
     state.localPreview = URL.createObjectURL(file);
     state.videoWorkflow = null;
@@ -407,7 +447,7 @@ async function uploadFile(file) {
     state.approvalKey = null;
     state.edit = { trim_start_seconds: 0, trim_end_seconds: 20, fit_mode: "letterbox", title_text: "", subtitles_enabled: false, transcript: "", shorten_duration_seconds: 12, shorten_target_seconds: 12, shorten_strategy: "smart_highlights", shorten_audio: "preserve", shorten_focus: "balanced" };
     state.asset = await api(`/assets/${reservation.id}/complete`, { method: "POST", body: {} });
-    state.assets.push(state.asset);
+    state.assets = state.assets.map(asset => asset.id === state.asset.id ? state.asset : asset);
     renderCreate();
     startPolling();
     toast("Clip uploaded. Server-side inspection started.");
@@ -427,8 +467,11 @@ async function reviewPlan() {
   const end = state.edit.trim_end_seconds;
   if (state.videoWorkflow === "trim" && (!Number.isFinite(start) || !Number.isFinite(end) || !(0 <= start && start < end && end <= state.asset.duration_seconds))) { toast("Trim end must follow the start and stay within the clip duration."); return; }
   element("review-plan").disabled = true;
+  const version = state.studioVersion, editVersion = state.editVersion;
   try {
-    state.plan = await api("/edit-plans", { method: "POST", body: { asset_id: state.asset.id, ...state.edit } });
+    const plan = await api("/edit-plans", { method: "POST", body: { asset_id: state.asset.id, ...state.edit } });
+    if (version !== state.studioVersion || editVersion !== state.editVersion) return;
+    state.plan = plan;
     state.plans.push(state.plan);
     state.approvalKey = crypto.randomUUID();
     const entries = [
@@ -448,9 +491,12 @@ async function reviewPlan() {
 async function approvePlan() {
   if (!state.plan || !state.approvalKey) return;
   element("approve-plan").disabled = true;
+  const version = state.studioVersion;
   try {
-    state.job = await api(`/edit-plans/${state.plan.id}/approve`, { method: "POST", body: { plan_version: state.plan.version, idempotency_key: state.approvalKey } });
-    state.jobs.push(state.job);
+    const job = await api(`/edit-plans/${state.plan.id}/approve`, { method: "POST", body: { plan_version: state.plan.version, idempotency_key: state.approvalKey } });
+    state.jobs.push(job);
+    if (version !== state.studioVersion) return;
+    state.job = job;
     element("plan-dialog").close();
     renderCreate();
     startPolling();
@@ -460,7 +506,7 @@ async function approvePlan() {
 }
 
 function renderJob() {
-  const job = state.job;
+  const job = jobMatchesAsset(state.job, state.asset, state.plans) ? state.job : null;
   element("job-panel").hidden = !job;
   element("export-package").disabled = job?.status !== "succeeded";
   if (!job) { element("artifact-links").innerHTML = ""; return; }
@@ -476,10 +522,14 @@ function startPolling() {
 }
 
 async function pollWork() {
+  const version = state.studioVersion;
   let pending = false;
   try {
     if (state.asset?.validation_status === "validating") {
-      state.asset = await api(`/assets/${state.asset.id}`);
+      const assetId = state.asset.id;
+      const updated = await api(`/assets/${assetId}`);
+      if (version !== state.studioVersion || state.asset?.id !== assetId) return;
+      state.asset = updated;
       state.assets = state.assets.map(asset => asset.id === state.asset.id ? state.asset : asset);
       pending = state.asset.validation_status === "validating";
       if (state.asset.validation_status === "valid") {
@@ -496,7 +546,10 @@ async function pollWork() {
     }
     if (state.job && ["queued", "processing"].includes(state.job.status)) {
       const previous = state.job.status;
-      state.job = await api(`/jobs/${state.job.id}`);
+      const jobId = state.job.id;
+      const updated = await api(`/jobs/${jobId}`);
+      if (version !== state.studioVersion || state.job?.id !== jobId) return;
+      state.job = updated;
       state.jobs = state.jobs.map(job => job.id === state.job.id ? state.job : job);
       pending = pending || ["queued", "processing"].includes(state.job.status);
       if (previous !== state.job.status && state.job.status === "succeeded") toast("Your creation is ready.");
@@ -504,8 +557,8 @@ async function pollWork() {
     }
     if (state.page === "create") renderCreate();
     if (state.page === "activity") renderActivity();
-  } catch (error) { toast(error.message); pending = true; }
-  if (pending) state.polling = setTimeout(pollWork, 2000);
+  } catch (error) { if (version !== state.studioVersion) return; toast(error.message); pending = true; }
+  if (version === state.studioVersion && pending) state.polling = setTimeout(pollWork, 2000);
 }
 
 function renderCaption() {
@@ -525,17 +578,13 @@ function renderCaption() {
   element("creator-hook").textContent = caption?.hook ? `OPENING HOOK  /  ${caption.hook}` : "";
   element("creator-title-suggestion").hidden = !caption?.title;
   element("creator-title-text").textContent = caption?.title || "";
-  if (caption?.title && !element("video-title").value.trim()) {
-    state.edit.title_text = caption.title;
-    element("video-title").value = caption.title;
-    renderPreview();
-  }
   element("caption-state").textContent = caption ? caption.edited ? "Edited" : caption.provider : "Draft";
 }
 
 function creatorPackRequest() {
   return {
     product_ids: state.session.selected_product_ids,
+    asset_id: state.asset?.id || null,
     user_context: element("caption-context").value,
     transcript: element("transcript-input").value,
     tone: element("caption-tone").value
@@ -543,32 +592,44 @@ function creatorPackRequest() {
 }
 
 async function generateCaption() {
+  const version = state.studioVersion, request = ++state.captionRequest;
   element("generate-caption").disabled = true;
   try {
-    state.caption = await api("/captions", { method: "POST", body: creatorPackRequest() });
-    state.captions.push(state.caption);
+    const caption = await api("/captions", { method: "POST", body: creatorPackRequest() });
+    state.captions.push(caption);
+    if (version !== state.studioVersion || request !== state.captionRequest) return;
+    state.caption = caption;
     renderCaption();
     toast("Creator Pack ready. The hook, title, and caption are all editable.");
-  } catch (error) { toast(error.message); }
-  finally { element("generate-caption").disabled = false; }
+  } catch (error) { if (version === state.studioVersion && request === state.captionRequest) toast(error.message); }
+  finally { if (request === state.captionRequest) element("generate-caption").disabled = false; }
 }
 
 async function saveCaption() {
+  const version = state.studioVersion;
   const text = element("caption-text").value;
   const hashtags = parseHashtags(element("caption-hashtags").value);
   if (!text.trim() && !hashtags.length) throw new Error("Add caption text before saving.");
   if (!state.caption) {
-    state.caption = await api("/captions", { method: "POST", body: creatorPackRequest() });
-    state.captions.push(state.caption);
+    const caption = await api("/captions", { method: "POST", body: creatorPackRequest() });
+    if (version !== state.studioVersion) throw new Error("The selected clip changed. Please save from the current draft.");
+    state.caption = caption;
+    state.captions.push(caption);
   }
-  state.caption = await api(`/captions/${state.caption.id}`, { method: "PUT", body: { text, hashtags } });
+  const caption = await api(`/captions/${state.caption.id}`, { method: "PUT", body: { text, hashtags } });
+  if (version !== state.studioVersion) throw new Error("The selected clip changed. Please save from the current draft.");
+  state.caption = caption;
   state.captions = state.captions.map(caption => caption.id === state.caption.id ? state.caption : caption);
   element("caption-state").textContent = "Saved";
 }
 
 async function downloadArtifact(filename) {
-  if (element("caption-text").value.trim()) await saveCaption();
-  const downloads = await api(`/jobs/${state.job.id}/downloads`);
+  const job = state.job, version = state.studioVersion;
+  if (job?.status !== "succeeded" || !jobMatchesAsset(job, state.asset, state.plans)) throw new Error("Render the current clip before exporting.");
+  if (filename !== "output.mp4" && element("caption-text").value.trim()) await saveCaption();
+  if (version !== state.studioVersion || state.job?.id !== job.id) return;
+  const downloads = await api(`/jobs/${job.id}/downloads`);
+  if (version !== state.studioVersion || state.job?.id !== job.id) return;
   const artifact = downloads.artifacts.find(item => item.name === filename);
   if (!artifact) throw new Error("The requested artifact is unavailable.");
   const link = document.createElement("a");
@@ -608,7 +669,10 @@ function renderStatus() {
 }
 
 async function refreshWorkspace(initial = false) {
+  if (state.uploading || state.loadingSample) return;
+  const version = state.studioVersion;
   const data = await api("/bootstrap");
+  if (version !== state.studioVersion || state.uploading || state.loadingSample) return;
   state.session = data.session;
   state.capabilities = data.capabilities;
   state.messages = data.messages;
@@ -616,22 +680,13 @@ async function refreshWorkspace(initial = false) {
   state.plans = data.plans;
   state.jobs = data.jobs;
   state.captions = data.captions;
-  if (initial || !state.asset) state.asset = state.assets.at(-1) || null;
-  else state.asset = state.assets.find(asset => asset.id === state.asset.id) || null;
-  if (initial || !state.job) state.job = state.jobs.at(-1) || null;
-  else state.job = state.jobs.find(job => job.id === state.job.id) || null;
   if (initial) {
-    state.caption = state.captions.at(-1) || null;
-    const plan = state.asset ? [...state.plans].reverse().find(candidate => candidate.asset_id === state.asset.id) : null;
-    if (plan) {
-      state.videoWorkflow = plan.shorten_duration_seconds ? "summarize" : "trim";
-      state.edit = { trim_start_seconds: plan.trim_start_seconds, trim_end_seconds: plan.trim_end_seconds, fit_mode: plan.fit_mode, title_text: plan.title_text, subtitles_enabled: plan.subtitles_enabled, transcript: plan.transcript, shorten_duration_seconds: plan.shorten_duration_seconds || 0, shorten_target_seconds: plan.shorten_duration_seconds || 12, shorten_strategy: plan.shorten_strategy || "smart_highlights", shorten_audio: plan.shorten_audio || "preserve", shorten_focus: plan.shorten_focus || "balanced" };
-      element("shorten-strategy").value = plan.shorten_strategy || "smart_highlights";
-      element("shorten-focus").value = plan.shorten_focus || "balanced";
-      const audio = document.querySelector(`input[name="shorten_audio"][value="${plan.shorten_audio || "preserve"}"]`);
-      if (audio) audio.checked = true;
-    }
-    else if (state.asset?.duration_seconds) { state.videoWorkflow = null; state.edit.trim_end_seconds = Math.min(20, state.asset.duration_seconds); }
+    let assetId = state.assets.at(-1)?.id || null;
+    try {
+      const saved = JSON.parse(sessionStorage.getItem(`butler-studio-${state.session.id}`));
+      if (saved && Object.hasOwn(saved, "assetId")) assetId = saved.assetId;
+    } catch { /* Ignore unavailable or invalid browser storage. */ }
+    selectStudio(assetId);
     element("category-filter").value = state.session.preferences.category;
     element("currency-filter").value = state.session.preferences.currency;
     element("budget-filter").value = state.session.preferences.budget_minor === null ? "" : state.session.preferences.budget_minor / 100;
@@ -641,6 +696,10 @@ async function refreshWorkspace(initial = false) {
     if (state.session.preferences.budget_minor !== null) query.set("max_price_minor", state.session.preferences.budget_minor);
     state.products = (await api(`/products?${query}`)).products;
     renderCaption();
+  }
+  if (!initial) {
+    state.asset = state.assets.find(asset => asset.id === state.asset?.id) || null;
+    state.job = state.jobs.find(job => job.id === state.job?.id && jobMatchesAsset(job, state.asset, state.plans)) || null;
   }
   element("provider-badge").innerHTML = `<span class="connection-dot"></span><span>${escapeHtml(state.capabilities.assistant)}</span>`;
   element("session-mode").textContent = state.capabilities.access_mode;
@@ -701,20 +760,28 @@ document.addEventListener("click", async event => {
     }
     if (button.dataset.downloadFile) await downloadArtifact(button.dataset.downloadFile);
     if (button.dataset.activityId) {
-      if (button.dataset.activityType === "asset") {
-        state.asset = state.assets.find(asset => asset.id === button.dataset.activityId);
-        state.videoWorkflow = null;
-        if (state.localPreview) URL.revokeObjectURL(state.localPreview);
-        state.localPreview = null;
-        state.job = state.jobs.find(job => state.plans.find(plan => plan.id === job.plan_id)?.asset_id === state.asset.id) || null;
-        state.edit.trim_end_seconds = Math.min(20, state.asset.duration_seconds || 20);
+      if (!canChangeClip()) return;
+      if (button.dataset.activityType === "asset") selectStudio(button.dataset.activityId, null, false);
+      if (button.dataset.activityType === "job") {
+        const job = state.jobs.find(job => job.id === button.dataset.activityId);
+        const plan = state.plans.find(plan => plan.id === job?.plan_id);
+        if (!plan) throw new Error("This render's source clip is unavailable.");
+        selectStudio(plan.asset_id, job.id);
       }
-      if (button.dataset.activityType === "job") state.job = state.jobs.find(job => job.id === button.dataset.activityId);
-      if (button.dataset.activityType === "caption") { state.caption = state.captions.find(caption => caption.id === button.dataset.activityId); renderCaption(); }
+      if (button.dataset.activityType === "caption") {
+        const caption = state.captions.find(caption => caption.id === button.dataset.activityId);
+        if (!caption) throw new Error("This caption is unavailable.");
+        selectStudio(caption.asset_id || null, null, false);
+        state.caption = caption;
+        renderCaption();
+      }
       setPage("create");
     }
     if (button.id === "retry-job") {
-      state.job = await api(`/jobs/${state.job.id}/retry`, { method: "POST", body: {} });
+      const version = state.studioVersion;
+      const job = await api(`/jobs/${state.job.id}/retry`, { method: "POST", body: {} });
+      if (version !== state.studioVersion) return;
+      state.job = job;
       renderCreate(); startPolling();
     }
   } catch (error) { toast(error.message); }
@@ -740,24 +807,34 @@ element("chat-input").addEventListener("keydown", event => { if (event.key === "
 element("open-comparison").addEventListener("click", () => openComparison().catch(error => toast(error.message)));
 element("clear-comparison").addEventListener("click", async () => { try { await persistSession({ selected_product_ids: [] }); renderProducts(); renderSaved(); } catch (error) { toast(error.message); } });
 element("use-selection").addEventListener("click", async () => { try { await persistSession({ selected_product_ids: JSON.parse(element("use-selection").dataset.productIds) }); element("compare-dialog").close(); setPage("create"); toast("Selection added to your caption context."); } catch (error) { toast(error.message); } });
-element("choose-file").addEventListener("click", () => { if (!element("media-consent").checked) toast("Confirm that you own the clip or have permission to use it."); else element("video-file").click(); });
+element("choose-file").addEventListener("click", () => { if (!element("media-consent").checked) toast("Confirm that you own the clip or have permission to use it."); else if (canChangeClip()) { element("video-file").value = ""; element("video-file").click(); } });
+element("remove-video").addEventListener("click", () => {
+  if (!canChangeClip()) return;
+  selectStudio(null);
+  element("media-consent").checked = false;
+  toast("Video removed from this draft. Previous uploads and renders remain in Activity.");
+});
 if (element("use-sample-clip")) {
   element("use-sample-clip").addEventListener("click", async () => {
+    if (!canChangeClip()) return;
+    state.loadingSample = true;
+    renderCreate();
     try {
       element("media-consent").checked = true;
       toast("Loading self-created footage...");
-      const response = await fetch("/static/assets/demo-creator-clip.mp4");
+      const response = await fetch("/assets/demo-creator-clip.mp4");
       if (!response.ok) throw new Error("Sample clip is unavailable.");
       const blob = await response.blob();
       const file = new File([blob], "demo-creator-clip.mp4", { type: "video/mp4" });
       await uploadFile(file);
     } catch (error) { toast(error.message); }
+    finally { state.loadingSample = false; renderCreate(); }
   });
 }
-element("video-file").addEventListener("change", event => uploadFile(event.target.files[0]));
+element("video-file").addEventListener("change", event => { const file = event.target.files[0]; event.target.value = ""; if (canChangeClip()) uploadFile(file); });
 element("upload-zone").addEventListener("dragover", event => { event.preventDefault(); element("upload-zone").classList.add("dragging"); });
 element("upload-zone").addEventListener("dragleave", () => element("upload-zone").classList.remove("dragging"));
-element("upload-zone").addEventListener("drop", event => { event.preventDefault(); element("upload-zone").classList.remove("dragging"); if (event.dataTransfer.files.length !== 1) toast("Choose one clip at a time."); else uploadFile(event.dataTransfer.files[0]); });
+element("upload-zone").addEventListener("drop", event => { event.preventDefault(); element("upload-zone").classList.remove("dragging"); if (event.dataTransfer.files.length !== 1) toast("Choose one clip at a time."); else if (canChangeClip()) uploadFile(event.dataTransfer.files[0]); });
 element("edit-form").addEventListener("input", event => {
   if (event.target.id === "shorten-duration-number") {
     const number = Number(event.target.value);
@@ -790,7 +867,11 @@ element("edit-form").addEventListener("submit", event => { event.preventDefault(
 element("approve-plan").addEventListener("click", approvePlan);
 element("retry-inspection").addEventListener("click", async () => {
   try {
-    state.asset = await api(`/assets/${state.asset.id}/complete`, { method: "POST", body: {} });
+    const version = state.studioVersion, assetId = state.asset?.id;
+    if (!assetId) return;
+    const updated = await api(`/assets/${assetId}/complete`, { method: "POST", body: {} });
+    if (version !== state.studioVersion) return;
+    state.asset = updated;
     renderCreate(); startPolling();
   } catch (error) { toast(error.message); }
 });

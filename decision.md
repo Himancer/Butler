@@ -68,3 +68,9 @@ Regression verification: 62 Python tests passed, 1 real-render test skipped, and
 ## October 18: safe provider reason codes
 
 Use an explicit allowlist of Google ErrorInfo enums rather than displaying raw error bodies. The shared HTTP 403 message prevents distinguishing configuration causes. Known reason codes can guide the deployment owner while unknown upstream content remains private. No change to product fundamentals, IAM, model selection or cloud configuration.
+
+## October 18: keep each creator draft tied to one clip
+
+A clip selection is an asset/plan/job unit. Restoring latest asset and latest job independently could show another clip's output. A shared selection helper and per-selection async version prevent cross-clip state. Remove means remove from the current draft, preserving uploaded history and running server work. Persist the cleared selection in sessionStorage so refresh cannot resurrect it in that tab. Explicit activity reopening restores context deliberately.
+
+Captions need an optional owned asset association; never attach the latest arbitrary session caption to a video export. Legacy standalone captions remain separately accessible. Suggested titles require an explicit click so existing approved output cannot silently become stale. No new product scope was introduced. Regression and local browser evidence are in flow.md; cloud rendering and AI are not claimed verified.

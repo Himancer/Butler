@@ -79,7 +79,13 @@ def main() -> int:
     address = f"{arguments.host}:{server.server_port}"
     print(f"Butler is listening on {address}", flush=True)
     print(f"Assistant: {app.capabilities()['assistant']} | Catalog: fictional samples | Media tools: {'ready' if app.tools.status()['ready'] else 'not configured'}", flush=True)
-    print("Cloud Run mode. Press Ctrl+C to stop." if cloud_run else "Local access only. Press Ctrl+C to stop.", flush=True)
+    if cloud_run:
+        access_message = "Cloud Run mode"
+    elif os.environ.get("BUTLER_PUBLIC_ORIGIN"):
+        access_message = "Public preview mode"
+    else:
+        access_message = "Local access only"
+    print(f"{access_message}. Press Ctrl+C to stop.", flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:

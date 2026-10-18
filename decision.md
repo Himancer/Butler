@@ -36,6 +36,10 @@ No Google API key-shaped value was found in this checkout's working files during
 
 `codex/creator-studio-ui` is based on the current `origin/main` commit and has a clean working tree. The separate `Butler` checkout is one commit behind and contains uncommitted, overlapping edits. Keep those edits intact; do not overwrite the candidate branch with that stale diff. If a unique change from the older checkout is needed, compare and port it deliberately.
 
+### 9. Keep the hosted test preview separate from the GCP submission deployment
+
+Use the Render Free service only to let the team open and exercise the app. It deploys the candidate Docker branch with local rules, the fictional catalog, SQLite, local media files, manual transcription, and a demo passcode. Its health endpoint and page load can verify the hosted app shell and API boot. Free-tier storage is ephemeral, and the instance may sleep; do not use it for important uploads or claim it proves Cloud Run, Firestore, Cloud Storage, Firebase Hosting, or Gemini.
+
 ## Review log
 
 ### 2026-10-18
@@ -48,3 +52,6 @@ No Google API key-shaped value was found in this checkout's working files during
 - Added this file to record the product, UX, security, and release decisions behind the candidate.
 - Pushed the documentation follow-up to the existing branch and attached open PR #4; GitHub reported no commit status checks at review time.
 - Next priority: verify the deployed URL and cloud services, then perform a real video render; avoid adding more features until these demo-critical paths work.
+- Created the separate Render Free test service `butler-preview-test` from `codex/creator-studio-ui` at commit `44d0bd9e`; the initial `/health` request returned HTTP 200 and the app accepted the configured demo access code.
+- Corrected the access-mode capability and startup message so a configured `BUTLER_PUBLIC_ORIGIN` is reported as “Public preview,” and added a regression check. After this patch, `python run.py --test` passed 60 tests with one real-render test skipped, Node UI helper tests passed 8/8, `npm run check` passed, and `git diff --check` passed. Push and redeploy this correction before calling the preview current.
+- Render's build installed FFmpeg and FFprobe from the Dockerfile. This does not yet establish that a real user clip renders successfully on the Free instance; the integration render remains unverified.

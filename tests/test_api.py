@@ -78,6 +78,10 @@ class APITests(unittest.TestCase):
         self.assertEqual(status, 403)
         self.assertEqual(data["error"]["code"], "INVALID_ORIGIN")
 
+    def test_public_preview_is_reported_as_public(self):
+        with patch.dict(os.environ, {"BUTLER_PUBLIC_ORIGIN": "https://preview.example"}, clear=False):
+            self.assertEqual(self.app.capabilities()["access_mode"], "Public preview")
+
     def test_shopping_chat_persists_and_duplicate_id_does_not_repeat(self):
         values = {"message": "Find a microphone under 5000 INR", "client_message_id": uuid.uuid4().hex}
         status, first, _ = self.own("POST", "/api/v1/chat", values)

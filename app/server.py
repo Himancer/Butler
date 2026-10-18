@@ -88,7 +88,8 @@ class ButlerApplication:
 
     def capabilities(self) -> dict[str, Any]:
         media_storage = self.object_store.mode + (" (selected; access checked on upload)" if self.object_store.mode == "Google Cloud Storage" else "")
-        return {"assistant": "Gemini on Vertex AI" if self.provider_mode == "vertex" else "Local rules", "model_mode": self.provider_mode, "catalog": self.catalog.metadata, "media": self.tools.status(), "transcription": self.transcription_mode, "retention_hours": 24, "storage": "Firestore" if self.storage_mode == "firestore" else "Local SQLite", "media_storage": media_storage, "access_mode": "Cloud Run" if os.environ.get("K_SERVICE") else "Loopback only", "max_upload_bytes": self.max_upload_bytes}
+        access_mode = "Cloud Run" if os.environ.get("K_SERVICE") else "Public preview" if os.environ.get("BUTLER_PUBLIC_ORIGIN") else "Loopback only"
+        return {"assistant": "Gemini on Vertex AI" if self.provider_mode == "vertex" else "Local rules", "model_mode": self.provider_mode, "catalog": self.catalog.metadata, "media": self.tools.status(), "transcription": self.transcription_mode, "retention_hours": 24, "storage": "Firestore" if self.storage_mode == "firestore" else "Local SQLite", "media_storage": media_storage, "access_mode": access_mode, "max_upload_bytes": self.max_upload_bytes}
 
     def product(self, product: dict[str, Any]) -> dict[str, Any]:
         return {**product, "source_label": self.catalog.metadata["source"], "source_url": None, "price_observed_at": None, "availability_note": "Not checked", "catalog_version": self.catalog.metadata["version"], "sample": True}

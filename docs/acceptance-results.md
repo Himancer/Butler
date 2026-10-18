@@ -117,7 +117,7 @@ Reviewed the `codex/creator-studio-ui` working branch on top of `origin/main` (`
 
 | Check | Result |
 | --- | --- |
-| Python and HTTP suite | 58 passed, 0 failed, 1 skipped (`python run.py --test`) |
+| Python and HTTP suite | 58 passed, 0 failed, 1 skipped (`python run.py --test`; rerun on 18 October 2026) |
 | JavaScript UI helpers | 8 passed, 0 failed; module syntax checks passed |
 | Browser console | No JavaScript errors observed in the local review session |
 | Search and sort | `USB-C` returned seven matching microphone samples; price sort changed the first displayed sample from ₹1,499 to ₹8,499 |
